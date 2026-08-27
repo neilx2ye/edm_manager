@@ -1,0 +1,45 @@
+{
+  "name": "edm-mail-preview",
+  "version": "0.1.0",
+  "private": true,
+  "scripts": {
+    "dev": "next dev",
+    "build": "next build",
+    "start": "next start",
+    "db:setup": "tsx scripts/db-setup.ts",
+    "db:migrate": "tsx scripts/migrate.ts",
+    "db:seed": "tsx --env-file=.env scripts/seed.ts"
+  },
+  "dependencies": {
+    "@auth/drizzle-adapter": "^1.11.3",
+    "@codemirror/lang-html": "^6.4.12",
+    "@node-rs/argon2": "^2.1.0",
+    "@tailwindcss/postcss": "^4.3.3",
+    "@uiw/react-codemirror": "^4.25.11",
+    "cheerio": "^1.2.0",
+    "diff": "^9.0.0",
+    "drizzle-orm": "^0.45.2",
+    "js-beautify": "^2.0.3",
+    "next": "15.5.23",
+    "next-auth": "5.0.0-beta.32",
+    "pg": "^8.23.0",
+    "react": "19.2.8",
+    "react-dom": "19.2.8",
+    "tailwindcss": "^4.3.3",
+    "ws": "^8.21.3",
+    "zod": "^4.4.3"
+  },
+  "devDependencies": {
+    "@types/diff": "^8.0.0",
+    "@types/js-beautify": "^1.14.3",
+    "@types/node": "^22.10.0",
+    "@types/pg": "^8.23.0",
+    "@types/react": "^19.2.0",
+    "@types/react-dom": "^19.2.0",
+    "@types/ws": "^8.18.0",
+    "drizzle-kit": "^0.31.10",
+    "playwright": "^1.62.1",
+    "tsx": "^4.23.12",
+    "typescript": "^5.9.0"
+  }
+}

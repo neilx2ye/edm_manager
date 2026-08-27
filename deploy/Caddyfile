@@ -1,0 +1,71 @@
+# EDM 反向代理配置（合并原有 task.neilx.online 站点）
+#
+# 域名对应关系：
+#   edm.neilx.online  ->  127.0.0.1:3000（Next.js 应用）
+#   edm.neilx.online/ws* -> 127.0.0.1:3001（WebSocket 实时网关）
+#   task.neilx.online  ->  127.0.0.1:3200（原有应用，保持不变）
+
+http://124.156.194.176 {
+	redir https://task.neilx.online{uri} permanent
+}
+
+edm.neilx.online {
+	encode zstd gzip
+
+	header {
+		-Server
+		-X-Powered-By
+		X-Content-Type-Options "nosniff"
+		X-Frame-Options "DENY"
+		Referrer-Policy "strict-origin-when-cross-origin"
+		Permissions-Policy "camera=(), microphone=(), geolocation=()"
+	}
+
+	# WebSocket 实时网关（LISTEN/NOTIFY 推送）
+	handle /ws* {
+		reverse_proxy 127.0.0.1:3001 {
+			header_up X-Forwarded-Proto {scheme}
+			header_up X-Forwarded-Host {host}
+		}
+	}
+
+	# Next.js 应用
+	handle {
+		reverse_proxy 127.0.0.1:3000 {
+			header_up X-Forwarded-Proto {scheme}
+			header_up X-Forwarded-Host {host}
+		}
+	}
+
+	log {
+		output stdout
+		format console
+	}
+}
+
+task.neilx.online {
+	encode zstd gzip
+
+	header {
+		-Server
+		-X-Powered-By
+		X-Content-Type-Options "nosniff"
+		X-Frame-Options "DENY"
+		Referrer-Policy "strict-origin-when-cross-origin"
+		Permissions-Policy "camera=(), microphone=(), geolocation=()"
+	}
+
+	reverse_proxy 127.0.0.1:3200 {
+		header_up -X-Middleware-Subrequest
+
+		transport http {
+			dial_timeout 5s
+			response_header_timeout 300s
+		}
+	}
+
+	log {
+		output stdout
+		format console
+	}
+}

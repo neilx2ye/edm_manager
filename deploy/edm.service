@@ -1,0 +1,22 @@
+[Unit]
+Description=EDM Mail Preview (Next.js + WebSocket 实时网关)
+After=network.target postgresql.service
+
+[Service]
+Type=simple
+User=ubuntu
+Group=ubuntu
+WorkingDirectory=/home/ubuntu/EDM
+Environment=NODE_ENV=production
+Environment=NEXT_TELEMETRY_DISABLED=1
+Environment=WS_HOST=127.0.0.1
+EnvironmentFile=/home/ubuntu/EDM/.env
+ExecStartPre=/usr/bin/test -s "/home/ubuntu/EDM/.next/BUILD_ID"
+ExecStart=/usr/local/bin/node "/home/ubuntu/EDM/node_modules/next/dist/bin/next" start -H 127.0.0.1 -p 3000
+Restart=always
+RestartSec=3
+StandardOutput=journal
+StandardError=journal
+
+[Install]
+WantedBy=multi-user.target
