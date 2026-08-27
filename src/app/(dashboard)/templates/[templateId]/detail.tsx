@@ -44,7 +44,7 @@ import {
   inputCls,
 } from "@/components/ui";
 
-const CAN_EDIT: Role[] = ["owner", "admin", "editor"];
+const CAN_EDIT: Role[] = ["admin", "member"];
 const ZOOMS = [50, 75, 100, 125];
 const PANEL_WIDTH_KEY = "edm.panelWidth";
 
@@ -162,7 +162,7 @@ export default function TemplateDetail({ templateId }: { templateId: number }) {
   const iframeApiRef = useRef<{ startTextEdit: () => void } | null>(null);
 
   const canEdit = myRole !== null && CAN_EDIT.includes(myRole);
-  const canDelete = myRole === "owner" || myRole === "admin";
+  const canDelete = myRole === "admin";
 
   // 恢复上次拖拽后的面板宽度（仅客户端）
   useEffect(() => {
@@ -288,6 +288,7 @@ export default function TemplateDetail({ templateId }: { templateId: number }) {
     let selectedEl: Element | null = null;
     let editingEl: Element | null = null;
     let editOriginalText = "";
+    let lastClick = { time: 0, x: 0, y: 0, el: null as Element | null };
 
     const asElement = (target: EventTarget | null): Element | null =>
       target && (target as Node).nodeType === 1 ? (target as Element) : null;
@@ -354,21 +355,68 @@ export default function TemplateDetail({ templateId }: { templateId: number }) {
       if (!el || el === editingEl) return;
       e.preventDefault();
       e.stopPropagation();
+      const me = e as MouseEvent;
+      const now = performance.now();
+      // 自实现双击检测（不依赖 dblclick 事件，跨 iframe 环境更稳定）
+      const isDouble =
+        lastClick.el === el &&
+        now - lastClick.time < 350 &&
+        Math.abs(me.clientX - lastClick.x) < 8 &&
+        Math.abs(me.clientY - lastClick.y) < 8;
+      lastClick = { time: now, x: me.clientX, y: me.clientY, el };
+      if (isDouble) {
+        const tag = el.tagName.toLowerCase();
+        if (el.childElementCount === 0 && !VOID_TAGS.has(tag)) {
+          const range = locateElement(
+            codeTextRef.current,
+            tag,
+            el.id,
+            tagIndex(doc, el),
+          );
+          if (range && isSimpleTextRange(codeTextRef.current, range, tag)) {
+            select(el);
+            startTextEditAt(el, me.clientX, me.clientY);
+            return;
+          }
+        }
+      }
       select(el);
     };
 
-    const startTextEdit = () => {
-      if (!selectedEl || selectedEl.childElementCount !== 0) return;
-      editingEl = selectedEl;
+    /** 进入原地编辑：clientX/Y 给定时把光标放到点击处，否则放到末尾（不整段选中）。 */
+    const startTextEditAt = (
+      el: Element,
+      clientX?: number,
+      clientY?: number,
+    ) => {
+      if (el.childElementCount !== 0) return;
+      editingEl = el;
       editOriginalText = editingEl.textContent ?? "";
       editingEl.setAttribute("contenteditable", "plaintext-only");
       editingEl.classList.add("__edm-editing");
-      const range = doc.createRange();
-      range.selectNodeContents(editingEl);
       const sel = doc.getSelection();
+      let range: Range | null = null;
+      if (
+        clientX !== undefined &&
+        clientY !== undefined &&
+        typeof doc.caretRangeFromPoint === "function"
+      ) {
+        range = doc.caretRangeFromPoint(clientX, clientY);
+      }
+      if (!range || !editingEl.contains(range.startContainer)) {
+        range = doc.createRange();
+        range.selectNodeContents(editingEl);
+      }
+      // 双击：光标停在点击位置；工具条入口：光标停在末尾
+      range.collapse(clientX !== undefined);
       sel?.removeAllRanges();
       sel?.addRange(range);
       (editingEl as HTMLElement).focus();
+    };
+
+    const startTextEdit = () => {
+      if (!selectedEl) return;
+      startTextEditAt(selectedEl);
     };
 
     const finishTextEdit = (commit: boolean) => {
@@ -387,7 +435,9 @@ export default function TemplateDetail({ templateId }: { templateId: number }) {
 
     const onKeyDown = (e: Event) => {
       if (!editingEl) return;
-      const key = (e as KeyboardEvent).key;
+      const ke = e as KeyboardEvent;
+      if (ke.isComposing) return; // 中文输入法组词确认的 Enter 不应结束编辑
+      const key = ke.key;
       if (key === "Enter") {
         e.preventDefault();
         finishTextEdit(true);
@@ -1300,7 +1350,7 @@ function CodePanel({
       },
       scrollIntoView: true,
     });
-    view.focus();
+    // 不抢焦点：渲染框内正在原地编辑时，focus 会触发 focusout 提前结束编辑
   }, [range]);
 
   return (
@@ -1400,6 +1450,32 @@ function tagIndex(doc: Document, el: Element): number {
   return -1;
 }
 
+/** 提取源码中所有注释区间（MSO 条件注释里可能包含标签）。 */
+function commentRanges(html: string): Array<[number, number]> {
+  const out: Array<[number, number]> = [];
+  let i = 0;
+  while (i < html.length) {
+    const start = html.indexOf("<!--", i);
+    if (start === -1) break;
+    const end = html.indexOf("-->", start + 4);
+    if (end === -1) {
+      out.push([start, html.length]);
+      break;
+    }
+    out.push([start, end + 3]);
+    i = end + 3;
+  }
+  return out;
+}
+
+function inComment(ranges: Array<[number, number]>, pos: number): boolean {
+  for (const [start, end] of ranges) {
+    if (pos >= start && pos < end) return true;
+    if (start > pos) break;
+  }
+  return false;
+}
+
 /** 生成简短的 CSS 选择器路径（含 id 时提前终止）。 */
 function cssPath(el: Element): string {
   const parts: string[] = [];
@@ -1429,6 +1505,7 @@ function locateElement(
   domIndex: number,
 ): TagRange | null {
   const lower = html.toLowerCase();
+  const comments = commentRanges(html);
   const openTag = `<${tag}`;
   const closeTag = `</${tag}`;
   let start = -1;
@@ -1439,7 +1516,10 @@ function locateElement(
     const oi = lower.indexOf(openTag, i);
     if (oi === -1) break;
     const after = lower[oi + openTag.length];
-    if (after !== undefined && !/[\s/>]/.test(after)) {
+    if (
+      (after !== undefined && !/[\s/>]/.test(after)) ||
+      inComment(comments, oi)
+    ) {
       i = oi + openTag.length;
       continue;
     }
@@ -1476,11 +1556,14 @@ function locateElement(
     if (ci === -1) return null;
     if (oi !== -1 && oi < ci) {
       const after = lower[oi + openTag.length];
-      if (/[\s/>]/.test(after)) depth += 1;
+      if (/[\s/>]/.test(after) && !inComment(comments, oi)) depth += 1;
       pos = oi + openTag.length;
     } else {
       const afterClose = lower[ci + closeTag.length];
-      if (afterClose === undefined || /[\s/>]/.test(afterClose)) {
+      if (
+        (afterClose === undefined || /[\s/>]/.test(afterClose)) &&
+        !inComment(comments, ci)
+      ) {
         depth -= 1;
         if (depth === 0) {
           const gt = html.indexOf(">", ci);

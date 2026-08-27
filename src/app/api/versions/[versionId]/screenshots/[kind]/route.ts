@@ -23,7 +23,7 @@ export const GET = route(async (
   }
   if (requester.kind === "user") {
     const { checkMembership } = await import("@/db/context");
-    const okMember = await checkMembership(requester.user.id, project, "viewer");
+    const okMember = await checkMembership(requester.user.id, project, "member");
     if (!okMember) return err(403, "无权访问");
   }
 

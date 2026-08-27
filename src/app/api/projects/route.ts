@@ -4,13 +4,6 @@ import { withUserContext } from "@/db/context";
 import { writeAudit } from "@/lib/audit";
 import { route } from "@/lib/route";
 
-const RANK_TO_ROLE: Record<number, string> = {
-  1: "viewer",
-  2: "editor",
-  3: "admin",
-  4: "owner",
-};
-
 export const GET = route(async (req: NextRequest) => {
   const requester = await getRequester(req);
   const userOrErr = requireUser(requester);
@@ -19,20 +12,23 @@ export const GET = route(async (req: NextRequest) => {
   const projects = await withUserContext(userOrErr.id, async (_db, client) => {
     const res = await client.query(
       `SELECT p.id, p.name, p.description,
-              p.owner_id::text,
+              p.owner_id::text AS owner_id,
               p.agent_can_approve,
               p.created_at, p.updated_at,
-              COALESCE((SELECT edm.role_rank(pm.role)
-                         FROM edm.project_members pm
-                        WHERE pm.project_id = p.id
-                          AND pm.user_id = edm.current_user_id()), 0)::int AS role_rank,
+              CASE WHEN p.owner_id = edm.current_user_id()
+                   THEN 'admin'
+                   ELSE COALESCE((SELECT pm.role
+                                   FROM edm.project_members pm
+                                  WHERE pm.project_id = p.id
+                                    AND pm.user_id = edm.current_user_id()), 'member')
+              END AS my_role,
               (SELECT count(*)
                  FROM edm.templates t
                  JOIN edm.topics tp ON tp.id = t.topic_id
                 WHERE tp.project_id = p.id)::int AS template_count,
               (SELECT count(*) FROM edm.topics tp WHERE tp.project_id = p.id)::int AS topic_count
          FROM edm.projects p
-        WHERE edm.is_member(p.id, 'viewer')
+        WHERE edm.is_member(p.id, 'member')
         ORDER BY p.updated_at DESC`,
     );
     return res.rows;
@@ -41,8 +37,9 @@ export const GET = route(async (req: NextRequest) => {
   return ok(
     projects.map((p) => ({
       ...p,
-      myRole: RANK_TO_ROLE[p.role_rank] ?? "viewer",
-      role_rank: undefined,
+      myRole: p.my_role ?? "member",
+      isOwner: p.owner_id === userOrErr.id,
+      my_role: undefined,
     })),
   );
 });
@@ -72,7 +69,7 @@ export const POST = route(async (req: NextRequest) => {
     const created = res.rows[0];
     await client.query(
       `INSERT INTO edm.project_members (project_id, user_id, role, invited_by)
-       VALUES ($1, $2, 'owner', $2)`,
+       VALUES ($1, $2, 'admin', $2)`,
       [created.id, userOrErr.id],
     );
     return created;

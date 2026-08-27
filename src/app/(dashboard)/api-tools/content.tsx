@@ -1,8 +1,24 @@
 "use client";
 
-import { useCallback, useEffect, useMemo, useState } from "react";
+import {
+  useCallback,
+  useEffect,
+  useMemo,
+  useState,
+  type FormEvent,
+} from "react";
 import Link from "next/link";
-import { ErrorText, Spinner, btnSecondary, inputCls } from "@/components/ui";
+import { useSearchParams } from "next/navigation";
+import { api } from "@/lib/client-api";
+import type { ApiKeyInfo, Project } from "@/lib/types";
+import {
+  ErrorText,
+  Field,
+  Spinner,
+  btnPrimary,
+  btnSecondary,
+  inputCls,
+} from "@/components/ui";
 
 type OpenApiSchema = {
   type?: string;
@@ -47,6 +63,8 @@ type OpenApiDocument = {
     >;
   };
 };
+
+type CreatedApiKey = ApiKeyInfo & { key: string };
 
 type Endpoint = {
   method: string;
@@ -97,6 +115,56 @@ function groupKey(path: string): string {
   if (path.includes("/versions") || path.includes("/approve")) return "versions";
   if (path.includes("/images")) return "images";
   return "other";
+}
+
+function buildAgentScript(
+  baseUrl: string,
+  apiKey: string,
+  projectId: number | null,
+): string {
+  const base = (baseUrl.trim() || "http://localhost:3000").replace(/\/+$/, "");
+  const pid = projectId ?? 0;
+
+  return [
+    "#!/usr/bin/env bash",
+    "set -euo pipefail",
+    "",
+    "# EDM AI 客户端快速脚本（由 API 工具页生成）",
+    `API_BASE_URL="${base}"`,
+    `API_KEY="${apiKey}"`,
+    `PROJECT_ID="${pid}"`,
+    `AUTH="Authorization: Bearer $API_KEY"`,
+    "",
+    "list_topics() {",
+    `  command curl -sS -H "$AUTH" "$API_BASE_URL/api/projects/$PROJECT_ID/topics"`,
+    "}",
+    "",
+    "list_templates() {",
+    `  command curl -sS -H "$AUTH" "$API_BASE_URL/api/projects/$PROJECT_ID/templates"`,
+    "}",
+    "",
+    "list_versions() {",
+    `  local template_id="$1"`,
+    `  command curl -sS -H "$AUTH" "$API_BASE_URL/api/templates/$template_id/versions"`,
+    "}",
+    "",
+    "submit_version() {",
+    `  local template_id="$1"`,
+    `  local html_file="$2"`,
+    `  python3 - "$html_file" <<'PY' | command curl -sS -X POST -H "$AUTH" -H "Content-Type: application/json" --data-binary @- "$API_BASE_URL/api/templates/$template_id/versions"`,
+    "import json, sys",
+    'print(json.dumps({"html": open(sys.argv[1]).read(), "note": "AI 提交"}))',
+    "PY",
+    "}",
+    "",
+    'case "${1:-}" in',
+    "  topics) list_topics ;;",
+    "  templates) list_templates ;;",
+    `  versions) list_versions "$2" ;;`,
+    `  submit) submit_version "$2" "$3" ;;`,
+    '  *) echo "用法: bash edm_agent.sh <topics|templates|versions <templateId>|submit <templateId> <htmlFile>>" >&2; exit 1 ;;',
+    "esac",
+  ].join("\n");
 }
 
 function schemaType(schema?: OpenApiSchema): string {
@@ -319,9 +387,22 @@ function EndpointCard({ endpoint }: { endpoint: Endpoint }) {
 }
 
 export default function ApiToolsContent() {
+  const searchParams = useSearchParams();
+  const queryProjectId = Number(searchParams.get("projectId")) || null;
+
   const [doc, setDoc] = useState<OpenApiDocument | null>(null);
   const [error, setError] = useState<string | null>(null);
   const [keyword, setKeyword] = useState("");
+  const [projects, setProjects] = useState<Project[]>([]);
+  const [keyProjectId, setKeyProjectId] = useState<number | null>(null);
+  const [keyName, setKeyName] = useState("AI agent");
+  const [createdKey, setCreatedKey] = useState<CreatedApiKey | null>(null);
+  const [keyBusy, setKeyBusy] = useState(false);
+  const [keyError, setKeyError] = useState<string | null>(null);
+  const [baseUrl, setBaseUrl] = useState(() =>
+    typeof window === "undefined" ? "" : window.location.origin,
+  );
+  const [copied, setCopied] = useState<"key" | "script" | null>(null);
 
   const load = useCallback(async () => {
     try {
@@ -337,6 +418,36 @@ export default function ApiToolsContent() {
   useEffect(() => {
     void load();
   }, [load]);
+
+  useEffect(() => {
+    setBaseUrl(window.location.origin);
+  }, []);
+
+  useEffect(() => {
+    api.projects
+      .list()
+      .then(setProjects)
+      .catch(() => setProjects([]));
+  }, []);
+
+  useEffect(() => {
+    const manageable = projects.filter(
+      (project) => project.myRole === "admin",
+    );
+    if (manageable.length === 0) {
+      setKeyProjectId(null);
+      return;
+    }
+    const preferred =
+      queryProjectId && manageable.some((project) => project.id === queryProjectId)
+        ? queryProjectId
+        : null;
+    setKeyProjectId(preferred ?? manageable[0].id);
+  }, [projects, queryProjectId]);
+
+  useEffect(() => {
+    setCreatedKey(null);
+  }, [keyProjectId]);
 
   const endpoints = useMemo<Endpoint[]>(() => {
     const list: Endpoint[] = [];
@@ -376,6 +487,65 @@ export default function ApiToolsContent() {
         .filter((group) => group.endpoints.length > 0)
     : grouped;
 
+  const manageableProjects = projects.filter(
+    (project) => project.myRole === "admin",
+  );
+  const selectedProject = projects.find((project) => project.id === keyProjectId);
+  const script = useMemo(
+    () =>
+      createdKey?.key
+        ? buildAgentScript(baseUrl, createdKey.key, keyProjectId)
+        : "",
+    [baseUrl, createdKey, keyProjectId],
+  );
+
+  async function copyText(text: string, kind: "key" | "script") {
+    try {
+      await navigator.clipboard.writeText(text);
+      setCopied(kind);
+      window.setTimeout(() => setCopied(null), 1500);
+    } catch {
+      // 剪贴板不可用时静默失败
+    }
+  }
+
+  function downloadScript() {
+    if (!script) return;
+    const blob = new Blob([script], { type: "text/plain;charset=utf-8" });
+    const url = URL.createObjectURL(blob);
+    const anchor = document.createElement("a");
+    anchor.href = url;
+    anchor.download = "edm_agent.sh";
+    document.body.appendChild(anchor);
+    anchor.click();
+    anchor.remove();
+    URL.revokeObjectURL(url);
+  }
+
+  async function handleCreateKey(event: FormEvent) {
+    event.preventDefault();
+    const name = keyName.trim();
+    if (!name) {
+      setKeyError("API key 名称不能为空");
+      return;
+    }
+    if (!keyProjectId) {
+      setKeyError("请先选择可管理的项目");
+      return;
+    }
+    setKeyError(null);
+    setCreatedKey(null);
+    setKeyBusy(true);
+    try {
+      setCreatedKey(await api.projects.createApiKey(keyProjectId, name));
+      setKeyName("");
+    } catch (err) {
+      setKeyError(err instanceof Error ? err.message : "创建失败");
+    } finally {
+      setKeyBusy(false);
+    }
+  }
+
   if (error && !doc) {
     return (
       <div className="mx-auto max-w-5xl p-6">
@@ -409,6 +579,129 @@ export default function ApiToolsContent() {
           查看 OpenAPI JSON
         </Link>
       </div>
+
+      <section className="mb-6 rounded-xl border border-slate-200 bg-white p-4">
+        <div className="mb-3 flex flex-wrap items-center justify-between gap-2">
+          <div>
+            <h2 className="text-base font-semibold text-slate-900">
+              接入 AI 客户端
+            </h2>
+            <p className="mt-0.5 text-xs text-slate-400">
+              创建项目 API key，并生成可直接发给 AI 的调用脚本
+            </p>
+          </div>
+          {selectedProject ? (
+            <span className="rounded-full bg-indigo-50 px-2.5 py-1 text-xs font-medium text-indigo-700">
+              {selectedProject.name}
+            </span>
+          ) : null}
+        </div>
+
+        {manageableProjects.length === 0 ? (
+          <p className="rounded-lg bg-slate-50 px-3 py-6 text-center text-sm text-slate-500">
+            你目前没有 owner / admin 权限的项目，无法创建 API key。
+          </p>
+        ) : (
+          <>
+            <form
+              onSubmit={handleCreateKey}
+              className="grid gap-3 md:grid-cols-[minmax(0,1fr)_minmax(0,1fr)_auto]"
+            >
+              <Field label="项目">
+                <select
+                  className={inputCls}
+                  value={keyProjectId ?? ""}
+                  onChange={(e) => setKeyProjectId(Number(e.target.value) || null)}
+                >
+                  {manageableProjects.map((project) => (
+                    <option key={project.id} value={project.id}>
+                      {project.name}
+                    </option>
+                  ))}
+                </select>
+              </Field>
+              <Field label="Key 名称">
+                <input
+                  className={inputCls}
+                  value={keyName}
+                  onChange={(e) => setKeyName(e.target.value)}
+                  placeholder="例如 ai-copilot"
+                />
+              </Field>
+              <div className="flex items-end">
+                <button
+                  type="submit"
+                  className={btnPrimary}
+                  disabled={keyBusy || !keyProjectId}
+                >
+                  {keyBusy ? "创建中…" : "创建 API key"}
+                </button>
+              </div>
+            </form>
+
+            <ErrorText message={keyError} />
+
+            {createdKey?.key ? (
+              <div className="mt-4 rounded-lg border border-amber-200 bg-amber-50 p-3">
+                <div className="flex flex-wrap items-center justify-between gap-2">
+                  <p className="text-sm font-semibold text-amber-900">
+                    API key 已创建
+                  </p>
+                  <p className="text-xs text-amber-700">明文只显示这一次</p>
+                </div>
+                <div className="mt-2 flex items-start gap-2">
+                  <code className="min-w-0 flex-1 break-all rounded-md bg-white px-3 py-2 font-mono text-sm text-slate-900">
+                    {createdKey.key}
+                  </code>
+                  <button
+                    type="button"
+                    className={btnSecondary}
+                    onClick={() => void copyText(createdKey.key, "key")}
+                  >
+                    {copied === "key" ? "已复制 ✓" : "复制 key"}
+                  </button>
+                </div>
+
+                <div className="mt-4">
+                  <div className="mb-2 flex flex-wrap items-center justify-between gap-2">
+                    <label className="flex items-center gap-2 text-sm text-slate-700">
+                      接口地址
+                      <input
+                        className={`${inputCls} w-72`}
+                        value={baseUrl}
+                        onChange={(e) => setBaseUrl(e.target.value)}
+                        placeholder="http://localhost:3000"
+                      />
+                    </label>
+                    <div className="flex gap-2">
+                      <button
+                        type="button"
+                        className={btnSecondary}
+                        onClick={() => void copyText(script, "script")}
+                      >
+                        {copied === "script" ? "已复制 ✓" : "复制脚本"}
+                      </button>
+                      <button
+                        type="button"
+                        className={btnPrimary}
+                        onClick={downloadScript}
+                      >
+                        下载 .sh
+                      </button>
+                    </div>
+                  </div>
+                  <pre className="max-h-72 overflow-auto rounded-lg bg-slate-900 p-3 font-mono text-xs leading-relaxed text-slate-100">
+                    {script}
+                  </pre>
+                  <p className="mt-2 text-xs text-amber-700">
+                    脚本包含明文 key，请只发送给可信的 AI 客户端；刷新页面后 key 不再显示。
+                  </p>
+                </div>
+              </div>
+            ) : null}
+          </>
+        )}
+      </section>
 
       <div className="mb-6 overflow-hidden rounded-xl border border-indigo-100 bg-indigo-50/70">
         <div className="grid gap-4 p-4 md:grid-cols-[minmax(0,1fr)_auto]">

@@ -28,7 +28,7 @@ npm run build && npm run start   # 生产
 npx tsx --env-file=.env scripts/smoke.ts      # 登录 + API key + agent 推送
 npx tsx --env-file=.env scripts/ws-smoke.ts   # WebSocket 实时链路
 npx tsx --env-file=.env scripts/flow-test.ts  # agent_can_approve 开关与回滚
-npx tsx --env-file=.env scripts/perm-test.ts  # viewer 角色矩阵
+npx tsx --env-file=.env scripts/perm-test.ts  # 管理员/成员角色矩阵
 npx tsx --env-file=.env scripts/agent-discovery.ts # agent 只读发现主题/模板
 npx tsx --env-file=.env scripts/model-test.ts # 项目→主题→模板三层流程与邀请改密
 npx tsx --env-file=.env scripts/ui-smoke.mts  # 生产构建 UI 冒烟（Playwright）

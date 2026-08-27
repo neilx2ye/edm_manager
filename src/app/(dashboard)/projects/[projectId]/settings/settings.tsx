@@ -57,7 +57,7 @@ export default function ProjectSettings({
     );
   }
 
-  const canManage = project.myRole === "owner" || project.myRole === "admin";
+  const canManage = project.myRole === "admin";
 
   return (
     <div className="mx-auto max-w-4xl p-6">
@@ -208,7 +208,7 @@ function GeneralSettings({
         ) : null}
       </form>
 
-      {project.myRole === "owner" ? (
+      {project.isOwner ? (
         <div className="mt-4 rounded-xl border border-rose-200 bg-rose-50/60 p-4 shadow-sm">
           <h2 className="text-sm font-semibold text-rose-700">危险区域</h2>
           <p className="mt-1 text-xs text-slate-500">

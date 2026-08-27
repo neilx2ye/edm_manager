@@ -4,13 +4,6 @@ import { withUserContext } from "@/db/context";
 import { writeAudit } from "@/lib/audit";
 import { route } from "@/lib/route";
 
-const RANK_TO_ROLE: Record<number, string> = {
-  1: "viewer",
-  2: "editor",
-  3: "admin",
-  4: "owner",
-};
-
 export const GET = route(async (
   _req: NextRequest,
   { params }: { params: Promise<{ projectId: string }> },
@@ -29,10 +22,13 @@ export const GET = route(async (
               p.owner_id::text AS owner_id,
               p.agent_can_approve,
               p.created_at, p.updated_at,
-              COALESCE((SELECT edm.role_rank(pm.role)
-                         FROM edm.project_members pm
-                        WHERE pm.project_id = p.id
-                          AND pm.user_id = edm.current_user_id()), 0)::int AS role_rank,
+              CASE WHEN p.owner_id = edm.current_user_id()
+                   THEN 'admin'
+                   ELSE COALESCE((SELECT pm.role
+                                   FROM edm.project_members pm
+                                  WHERE pm.project_id = p.id
+                                    AND pm.user_id = edm.current_user_id()), 'member')
+              END AS my_role,
               (SELECT count(*)
                  FROM edm.templates t
                  JOIN edm.topics tp ON tp.id = t.topic_id
@@ -48,8 +44,9 @@ export const GET = route(async (
   if (!project) return err(404, "项目不存在或无权访问");
   return ok({
     ...project,
-    myRole: RANK_TO_ROLE[project.role_rank] ?? "viewer",
-    role_rank: undefined,
+    myRole: project.my_role ?? "member",
+    isOwner: project.owner_id === userOrErr.id,
+    my_role: undefined,
   });
 });
 

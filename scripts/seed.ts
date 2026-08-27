@@ -89,7 +89,7 @@ async function main() {
     );
     await client.query(
       `INSERT INTO edm.project_members (project_id, user_id, role, invited_by)
-       VALUES ($1, $2, 'owner', $2)
+       VALUES ($1, $2, 'admin', $2)
        ON CONFLICT DO NOTHING`,
       [projectId, userId],
     );

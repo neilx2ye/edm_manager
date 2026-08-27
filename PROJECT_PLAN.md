@@ -65,7 +65,7 @@
 
 用户与项目的多对多关系，携带角色。
 
-- projectId → projects(id)、userId → auth.users(id)、role（owner / admin / editor / viewer）
+- projectId → projects(id)、userId → auth.users(id)、role（admin / member）
 - invitedBy、joinedAt
 - `unique(projectId, userId)`；projectId、userId 均建索引
 
@@ -118,22 +118,24 @@
 
 ### 角色矩阵（项目级）
 
-| 能力 | owner | admin | editor | viewer | agent（API key） |
-| --- | --- | --- | --- | --- | --- |
-| 查看项目与模板 | ✅ | ✅ | ✅ | ✅ | ✅ |
-| 提交/迭代版本 | ✅ | ✅ | ✅ | ❌ | ✅ |
-| 采纳为 saved | ✅ | ✅ | ✅ | ❌ | ✅ |
-| 回滚历史版本 | ✅ | ✅ | ✅ | ❌ | ❌ |
-| 管理模板/标签 | ✅ | ✅ | ✅ | ❌ | ❌ |
-| 添加/移除成员、改角色 | ✅ | ✅ | ❌ | ❌ | ❌ |
-| 管理 API key | ✅ | ✅ | ❌ | ❌ | ❌ |
-| 删除项目 | ✅ | ❌ | ❌ | ❌ | ❌ |
+| 能力 | admin（管理员） | member（非管理员） | agent（API key） |
+| --- | --- | --- | --- |
+| 查看项目 / 主题 / 模板 | ✅ | ✅ | ✅ |
+| 创建与编辑主题 / 模板 / 图片 | ✅ | ✅ | ❌ |
+| 提交 / 采纳 / 回滚版本 | ✅ | ✅ | ✅（回滚仅限人工） |
+| 删除主题 / 模板 / 图片 | ✅ | ❌ | 仅自己上传的图片 |
+| 邀请新用户、分配项目、管理成员 | ✅ | ❌ | ❌ |
+| 管理 API key 与项目设置 | ✅ | ❌ | ❌ |
+| 删除项目 | 仅项目创建者（owner_id） | ❌ | ❌ |
 
-agent 可以推送版本、读取结果，并可**直接采纳为 saved**（项目级开关 `projects.agent_can_approve`，默认开启）；回滚仅限人工。
+角色只有两级：**管理员（admin）** 与 **非管理员（member）**。管理员可邀请新用户并分配项目；
+非管理员对所在项目拥有编辑与查看权限，但不能管理用户/成员。项目创建者以 `projects.owner_id`
+记录，权限等同管理员，并保留「仅创建者可删除项目」的兜底约束。agent 可以推送版本、读取结果，
+并可**直接采纳为 saved**（项目级开关 `projects.agent_can_approve`，默认开启）。
 
 ### 团队角色继承（团队 → 项目）
 
-- team member → 团队内所有项目 viewer；team admin → admin；team owner → owner。
+- team member → 团队内所有项目 member；team admin → admin；team owner → 项目创建者级权限。
 - 用户同时有直接项目角色和团队继承角色时，取两者中最高权限。
 - 团队 owner/admin 可管理团队成员；团队 admin 对团队内项目拥有 admin 级管理权（含成员与 API key）；团队 owner 可删除团队。
 
@@ -174,7 +176,7 @@ agent POST 新版本（带 API key）
 ### 保存满意模板
 
 1. agent 迭代出满意版本；
-2. 有 editor 及以上权限的用户，或允许采纳的 agent（项目开关，默认开启）执行「采纳/保存」；
+2. 项目成员（member 及以上），或允许采纳的 agent（项目开关，默认开启）执行「采纳/保存」；
 3. 版本状态置为 saved，进入模板的「已保存版本」分组；
 4. 之后可随时回滚到任意已保存版本。
 

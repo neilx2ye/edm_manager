@@ -1,5 +1,7 @@
 /**
- * 角色矩阵测试：viewer 只读、editor 可提交、admin 管成员（用户路径）。
+ * 角色矩阵测试（两级角色）：
+ *  - member（非管理员）可查看与编辑，不能管理成员 / API key，不能访问全局用户管理
+ *  - admin（管理员）可邀请新用户、分配项目
  */
 export {};
 
@@ -48,19 +50,19 @@ async function main() {
   ).json()) as { id: number }[];
   const templateId = templates[0].id;
 
-  // 预建 viewer 账号
+  // 管理员邀请新用户（预建 member 账号）
   const addRes = await fetch(`${BASE}/api/projects/${projectId}/members`, {
     ...auth(admin),
     method: "POST",
     body: JSON.stringify({
-      email: "viewer@edm.local",
-      role: "viewer",
-      name: "只读同事",
-      password: "viewer123456",
+      email: "member@edm.local",
+      role: "member",
+      name: "普通成员",
+      password: "member123456",
     }),
   });
   if (addRes.status !== 200 && addRes.status !== 201) {
-    console.error("添加 viewer 失败:", addRes.status, await addRes.text());
+    console.error("邀请 member 失败:", addRes.status, await addRes.text());
     process.exit(1);
   }
   // 统一把密码重置为已知值，保证测试可重复（新建与已存在账号均适用）
@@ -68,43 +70,64 @@ async function main() {
     const { servicePool } = await import("../src/db/pools");
     const { hashPassword } = await import("../src/lib/password");
     await servicePool.query(
-      "UPDATE auth.users SET password_hash=$1, must_change_password=false WHERE email='viewer@edm.local'",
-      [await hashPassword("viewer123456")],
+      "UPDATE auth.users SET password_hash=$1, must_change_password=false WHERE email='member@edm.local'",
+      [await hashPassword("member123456")],
     );
     await servicePool.end();
   }
-  const viewer = await loginAs("viewer@edm.local", "viewer123456");
+  const member = await loginAs("member@edm.local", "member123456");
 
-  // viewer 可见模板列表
+  // member 可见模板列表
   const listRes = await fetch(
     `${BASE}/api/projects/${projectId}/templates`,
-    auth(viewer),
+    auth(member),
   );
-  check("viewer 可查看模板列表", listRes.ok);
+  check("member 可查看模板列表", listRes.ok);
 
-  // viewer 不能提交版本
+  // member 可提交版本（编辑权限）
   const pushRes = await fetch(`${BASE}/api/templates/${templateId}/versions`, {
-    ...auth(viewer),
+    ...auth(member),
     method: "POST",
-    body: JSON.stringify({ html: "<p>viewer push</p>" }),
+    body: JSON.stringify({ html: "<p>member push</p>" }),
   });
-  check("viewer 不能提交版本", pushRes.status === 403);
+  check(
+    "member 可提交版本（编辑权限）",
+    pushRes.status === 200 || pushRes.status === 201,
+  );
 
-  // viewer 不能管理成员
+  // member 不能添加成员
   const mgrRes = await fetch(`${BASE}/api/projects/${projectId}/members`, {
-    ...auth(viewer),
+    ...auth(member),
     method: "POST",
-    body: JSON.stringify({ email: "x@edm.local", role: "editor" }),
+    body: JSON.stringify({ email: "x@edm.local", role: "member" }),
   });
-  check("viewer 不能添加成员", mgrRes.status === 403);
+  check("member 不能添加成员", mgrRes.status === 403);
 
-  // viewer 不能管理 API key
+  // member 不能访问全局用户管理
+  const ulistRes = await fetch(`${BASE}/api/users`, auth(member));
+  check("member 不能访问用户管理", ulistRes.status === 403);
+
+  // member 不能管理 API key
   const keyRes = await fetch(`${BASE}/api/projects/${projectId}/api-keys`, {
-    ...auth(viewer),
+    ...auth(member),
     method: "POST",
     body: JSON.stringify({ name: "forbidden" }),
   });
-  check("viewer 不能管理 API key", keyRes.status === 403);
+  check("member 不能管理 API key", keyRes.status === 403);
+
+  // admin 可通过全局用户管理邀请用户并分配项目
+  const gmEmail = `gm-${Date.now()}@edm.local`;
+  const gmRes = await fetch(`${BASE}/api/users`, {
+    ...auth(admin),
+    method: "POST",
+    body: JSON.stringify({
+      email: gmEmail,
+      name: "全局成员",
+      password: "global123",
+      assignments: [{ projectId, role: "member" }],
+    }),
+  });
+  check("admin 可邀请用户并分配项目", gmRes.status === 201);
 
   console.log(
     failures === 0 ? "\n✅ 角色矩阵测试通过" : `\n❌ ${failures} 项失败`,

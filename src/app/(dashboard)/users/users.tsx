@@ -18,11 +18,15 @@ import {
   inputCls,
 } from "@/components/ui";
 
-const ROLES: Role[] = ["owner", "admin", "editor", "viewer"];
+const ROLES: Role[] = ["admin", "member"];
+const ROLE_LABELS: Record<Role, string> = {
+  admin: "管理员",
+  member: "成员",
+};
 
-/** 我可管理的项目（admin/owner），用于成员资格分配下拉。 */
+/** 我可管理的项目（管理员，含项目创建者），用于成员资格分配下拉。 */
 function manageable(projects: Project[]): Project[] {
-  return projects.filter((p) => p.myRole === "owner" || p.myRole === "admin");
+  return projects.filter((p) => p.myRole === "admin");
 }
 
 export default function UsersContent() {
@@ -35,7 +39,7 @@ export default function UsersContent() {
 
   const load = useCallback(async () => {
     try {
-      // api.users.list 对非 admin/owner 返回 403；能列出用户才有权管理
+      // api.users.list 对非管理员返回 403；能列出用户才有权管理
       const list = await api.users.list();
       setUsers(list);
       setForbidden(null);
@@ -63,7 +67,7 @@ export default function UsersContent() {
         <div className="flex flex-col items-center gap-2 rounded-xl border border-dashed border-slate-300 bg-white py-16 text-center">
           <p className="text-sm font-medium text-slate-700">无权限</p>
           <p className="text-sm text-slate-400">
-            用户管理仅对项目的 owner / admin 开放（{forbidden}）
+            用户管理仅对项目管理员开放（{forbidden}）
           </p>
           <Link
             href="/change-password"
@@ -94,7 +98,7 @@ export default function UsersContent() {
             className={btnPrimary}
             onClick={() => setShowCreate(true)}
           >
-            + 新建用户
+            + 邀请用户
           </button>
         </div>
       </div>
@@ -296,7 +300,7 @@ function AddProjectForm({
   const [projectId, setProjectId] = useState<number>(
     available[0]?.id ?? projects[0]?.id ?? 0,
   );
-  const [role, setRole] = useState<string>("editor");
+  const [role, setRole] = useState<string>("member");
   const [busy, setBusy] = useState(false);
 
   async function onSubmit(e: FormEvent) {
@@ -316,7 +320,7 @@ function AddProjectForm({
   if (projects.length === 0) {
     return (
       <p className="mt-3 text-xs text-slate-400">
-        你没有 owner/admin 角色的项目，无法分配成员资格。
+        你没有管理员权限的项目，无法分配项目。
       </p>
     );
   }
@@ -352,7 +356,7 @@ function AddProjectForm({
         >
           {ROLES.map((r) => (
             <option key={r} value={r}>
-              {r}
+              {ROLE_LABELS[r]}
             </option>
           ))}
         </select>
@@ -364,7 +368,7 @@ function AddProjectForm({
   );
 }
 
-/* ---------- 新建用户 ---------- */
+/* ---------- 邀请用户 ---------- */
 
 type Assignment = { projectId: number; role: string };
 
@@ -381,7 +385,7 @@ function CreateUserModal({
   const [name, setName] = useState("");
   const [password, setPassword] = useState("");
   const [assignments, setAssignments] = useState<Assignment[]>([
-    { projectId: projects[0]?.id ?? 0, role: "editor" },
+    { projectId: projects[0]?.id ?? 0, role: "member" },
   ]);
   const [error, setError] = useState<string | null>(null);
   const [busy, setBusy] = useState(false);
@@ -420,7 +424,7 @@ function CreateUserModal({
   }
 
   return (
-    <Modal title="新建用户" onClose={onClose} width="max-w-xl">
+    <Modal title="邀请用户" onClose={onClose} width="max-w-xl">
       <form onSubmit={onSubmit} className="space-y-4">
         <div className="grid gap-3 sm:grid-cols-2">
           <Field label="邮箱">
@@ -482,7 +486,7 @@ function CreateUserModal({
                 >
                   {ROLES.map((r) => (
                     <option key={r} value={r}>
-                      {r}
+                      {ROLE_LABELS[r]}
                     </option>
                   ))}
                 </select>
@@ -507,7 +511,7 @@ function CreateUserModal({
             onClick={() =>
               setAssignments((rows) => [
                 ...rows,
-                { projectId: 0, role: "editor" },
+                { projectId: 0, role: "member" },
               ])
             }
           >
@@ -515,7 +519,7 @@ function CreateUserModal({
           </button>
           {projects.length === 0 ? (
             <p className="mt-1 text-xs text-rose-600">
-              你没有 owner/admin 角色的项目，无法为新用户分配项目。
+              你没有管理员权限的项目，无法为新用户分配项目。
             </p>
           ) : null}
         </div>
@@ -529,7 +533,7 @@ function CreateUserModal({
             取消
           </button>
           <button type="submit" disabled={busy} className={btnPrimary}>
-            {busy ? "创建中…" : "创建"}
+            {busy ? "邀请中…" : "邀请"}
           </button>
         </div>
       </form>

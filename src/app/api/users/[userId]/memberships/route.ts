@@ -4,7 +4,7 @@ import { withUserContext } from "@/db/context";
 import { writeAudit } from "@/lib/audit";
 import { route } from "@/lib/route";
 
-const PROJECT_ROLES = new Set(["owner", "admin", "editor", "viewer"]);
+const PROJECT_ROLES = new Set(["admin", "member"]);
 
 /** 为用户新增/更新某个项目中的角色（全局用户管理）。 */
 export const PUT = route(async (
@@ -25,14 +25,10 @@ export const PUT = route(async (
 
   const result = await withUserContext(userOrErr.id, async (_db, client) => {
     const perm = await client.query(
-      `SELECT edm.is_member($1, 'admin') AS is_admin,
-              edm.is_member($1, 'owner') AS is_owner`,
+      `SELECT edm.is_member($1, 'admin') AS is_admin`,
       [projectId],
     );
     if (perm.rows[0]?.is_admin !== true) return { error: "无权管理该项目成员" };
-    if (role === "owner" && perm.rows[0]?.is_owner !== true) {
-      return { error: "仅项目 owner 可授予 owner 角色" };
-    }
     const res = await client.query(
       `INSERT INTO edm.project_members (project_id, user_id, role, invited_by)
        VALUES ($1, $2, $3, $4)

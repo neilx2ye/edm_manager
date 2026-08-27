@@ -106,7 +106,7 @@ async function main() {
   await page.goto(`${BASE}/users`);
   await page.waitForSelector("text=新建用户", { timeout: 15000 }).catch(() => {});
   const usersText = await page.locator("body").innerText();
-  ok("用户管理页渲染", /新建用户|修改我的密码|admin@edm\.local/.test(usersText));
+  ok("用户管理页渲染", /邀请用户|修改我的密码|admin@edm\.local/.test(usersText));
   ok("用户管理页含删除账号", usersText.includes("删除账号"));
 
   ok("无页面 JS 错误", pageErrors.length === 0, pageErrors.slice(0, 3).join(" | "));

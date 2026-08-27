@@ -16,8 +16,8 @@ import { route } from "@/lib/route";
 
 /**
  * 项目图片库：
- * - GET：列出项目图片（登录用户 viewer+ 或该项目 agent）
- * - POST：上传图片（multipart/form-data，file 字段；登录用户 editor+ 或该项目 agent）
+ * - GET：列出项目图片（项目成员或该项目 agent）
+ * - POST：上传图片（multipart/form-data，file 字段；项目成员或该项目 agent）
  */
 export const GET = route(async (
   req: NextRequest,

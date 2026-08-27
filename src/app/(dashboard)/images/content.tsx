@@ -72,10 +72,8 @@ export default function ImagesContent() {
   if (loading) return <Spinner />;
 
   const canUpload =
-    project?.myRole === "owner" ||
-    project?.myRole === "admin" ||
-    project?.myRole === "editor";
-  const canDelete = project?.myRole === "owner" || project?.myRole === "admin";
+    project?.myRole === "admin" || project?.myRole === "member";
+  const canDelete = project?.myRole === "admin";
 
   async function copyUrl(img: Image) {
     const absolute = `${window.location.origin}${img.url}`;
@@ -114,7 +112,7 @@ export default function ImagesContent() {
             type="button"
             className={btnPrimary}
             disabled={!canUpload}
-            title={canUpload ? undefined : "需要 editor 及以上角色"}
+            title={canUpload ? undefined : "需要项目成员角色"}
             onClick={() => setShowUpload(true)}
           >
             + 上传图片

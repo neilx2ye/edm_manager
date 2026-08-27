@@ -23,21 +23,6 @@ export const DELETE = route(async (
     ).rows[0]?.ok;
     if (isAdmin !== true) return { error: "无权管理该项目成员" };
 
-    // 不能移除项目最后一个 owner
-    const ownerCount = await client.query(
-      `SELECT count(*)::int AS c FROM edm.project_members
-        WHERE project_id = $1 AND role = 'owner' AND user_id <> $2`,
-      [pid, userId],
-    );
-    const targetIsOwner = await client.query(
-      `SELECT 1 FROM edm.project_members
-        WHERE project_id = $1 AND user_id = $2 AND role = 'owner'`,
-      [pid, userId],
-    );
-    if (targetIsOwner.rowCount === 1 && ownerCount.rows[0].c === 0) {
-      return { error: "不能移除项目最后一个 owner" };
-    }
-
     const res = await client.query(
       "DELETE FROM edm.project_members WHERE project_id = $1 AND user_id = $2",
       [pid, userId],

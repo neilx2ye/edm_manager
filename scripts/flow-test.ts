@@ -124,7 +124,7 @@ async function main() {
     rollbackRes.status === 201 && rolled.status === "saved",
   );
 
-  // 7. 用户权限矩阵：viewer 不能提交（以直接 SQL 校验过于复杂，这里验证 API 拒绝匿名）
+  // 7. 权限由 RLS 兜底（两级角色：member 可编辑、admin 管成员）；此处验证 API 拒绝匿名
   const anonPush = await fetch(
     `${BASE}/api/templates/${templateId}/versions`,
     {

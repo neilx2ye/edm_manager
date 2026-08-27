@@ -5,16 +5,19 @@ import { provisionAccount } from "@/lib/members";
 import { writeAudit } from "@/lib/audit";
 import { route } from "@/lib/route";
 
-const PROJECT_ROLES = new Set(["owner", "admin", "editor", "viewer"]);
+const PROJECT_ROLES = new Set(["admin", "member"]);
 
-/** 当前用户是否在任一项目拥有 admin 及以上权限（全局用户管理的准入条件）。 */
+/** 当前用户是否为任一项目的管理员（含项目创建者，全局用户管理的准入条件）。 */
 async function isAnyProjectAdmin(userId: string): Promise<boolean> {
   return withUserContext(userId, async (_db, client) => {
     const res = await client.query(
       `SELECT EXISTS (
          SELECT 1 FROM edm.project_members pm
           WHERE pm.user_id = edm.current_user_id()
-            AND pm.role IN ('admin', 'owner')
+            AND pm.role = 'admin'
+       ) OR EXISTS (
+         SELECT 1 FROM edm.projects p
+          WHERE p.owner_id = edm.current_user_id()
        ) AS is_admin`,
     );
     return res.rows[0]?.is_admin === true;
@@ -27,7 +30,7 @@ export const GET = route(async (req: NextRequest) => {
   const userOrErr = requireUser(requester);
   if ("status" in userOrErr) return userOrErr;
   if (!(await isAnyProjectAdmin(userOrErr.id))) {
-    return err(403, "需要任一项目的 admin 及以上角色");
+    return err(403, "仅项目管理员可管理用户");
   }
 
   const users = await withUserContext(userOrErr.id, async (_db, client) => {
@@ -92,15 +95,11 @@ export const POST = route(async (req: NextRequest) => {
     }));
     for (const a of normalized) {
       const perm = await client.query(
-        `SELECT edm.is_member($1, 'admin') AS is_admin,
-                edm.is_member($1, 'owner') AS is_owner`,
+        `SELECT edm.is_member($1, 'admin') AS is_admin`,
         [a.projectId],
       );
       if (perm.rows[0]?.is_admin !== true) {
         return { error: `无权管理项目 ${a.projectId} 的成员` };
-      }
-      if (a.role === "owner" && perm.rows[0]?.is_owner !== true) {
-        return { error: `仅项目 ${a.projectId} 的 owner 可授予 owner 角色` };
       }
     }
 

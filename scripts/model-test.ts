@@ -99,15 +99,15 @@ async function main() {
   );
   check("移动模板到另一主题", moveRes.status === 200);
 
-  // 6. 邀请成员：项目 + 角色 + 初始密码
+  // 6. 邀请成员：项目 + 角色（管理员/成员）+ 初始密码
   const email = `invite-${Date.now()}@edm.local`;
   const inviteRes = await fetch(`${BASE}/api/projects/${projectId}/members`, {
     ...auth(admin),
     method: "POST",
     body: JSON.stringify({
       email,
-      role: "editor",
-      name: "受邀编辑",
+      role: "member",
+      name: "受邀成员",
       password: "invite123456",
     }),
   });
@@ -147,7 +147,7 @@ async function main() {
       email: gmEmail,
       name: "全局成员",
       password: "global123",
-      assignments: [{ projectId, role: "editor" }],
+      assignments: [{ projectId, role: "member" }],
     }),
   });
   const gm = (await gmRes.json()) as { id: string };

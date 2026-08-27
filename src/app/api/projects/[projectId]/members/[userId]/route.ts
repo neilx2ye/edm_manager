@@ -4,7 +4,7 @@ import { withUserContext } from "@/db/context";
 import { writeAudit } from "@/lib/audit";
 import { route } from "@/lib/route";
 
-const PROJECT_ROLES = new Set(["owner", "admin", "editor", "viewer"]);
+const PROJECT_ROLES = new Set(["admin", "member"]);
 
 export const PATCH = route(async (
   req: NextRequest,
@@ -23,27 +23,6 @@ export const PATCH = route(async (
   if (!PROJECT_ROLES.has(role)) return err(400, "无效角色");
 
   const result = await withUserContext(userOrErr.id, async (_db, client) => {
-    const isOwner = (
-      await client.query("SELECT edm.is_member($1, 'owner') AS o", [id])
-    ).rows[0]?.o;
-    if (role === "owner" && !isOwner) return { error: "仅 owner 可设置 owner" };
-
-    if (role !== "owner") {
-      const ownerCount = await client.query(
-        `SELECT count(*)::int AS c FROM edm.project_members
-          WHERE project_id = $1 AND role = 'owner' AND user_id <> $2`,
-        [id, userId],
-      );
-      const targetIsOwner = await client.query(
-        `SELECT 1 FROM edm.project_members
-          WHERE project_id = $1 AND user_id = $2 AND role = 'owner'`,
-        [id, userId],
-      );
-      if (targetIsOwner.rowCount === 1 && ownerCount.rows[0].c === 0) {
-        return { error: "不能移除项目最后一个 owner" };
-      }
-    }
-
     const res = await client.query(
       `UPDATE edm.project_members SET role = $3
         WHERE project_id = $1 AND user_id = $2
@@ -79,19 +58,6 @@ export const DELETE = route(async (
   if ("status" in userOrErr) return userOrErr;
 
   const result = await withUserContext(userOrErr.id, async (_db, client) => {
-    const ownerCount = await client.query(
-      `SELECT count(*)::int AS c FROM edm.project_members
-        WHERE project_id = $1 AND role = 'owner' AND user_id <> $2`,
-      [id, userId],
-    );
-    const targetIsOwner = await client.query(
-      `SELECT 1 FROM edm.project_members
-        WHERE project_id = $1 AND user_id = $2 AND role = 'owner'`,
-      [id, userId],
-    );
-    if (targetIsOwner.rowCount === 1 && ownerCount.rows[0].c === 0) {
-      return { error: "不能移除项目最后一个 owner" };
-    }
     const res = await client.query(
       "DELETE FROM edm.project_members WHERE project_id = $1 AND user_id = $2",
       [id, userId],

@@ -108,7 +108,7 @@ export default function TemplatesContent() {
   if (loading) return <Spinner />;
 
   const activeTopic = topics.find((t) => t.id === topicId) ?? null;
-  const canDelete = project?.myRole === "owner" || project?.myRole === "admin";
+  const canDelete = project?.myRole === "admin";
   const allSelected =
     canDelete &&
     filtered.length > 0 &&

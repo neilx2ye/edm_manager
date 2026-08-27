@@ -5,7 +5,7 @@ import { provisionAccount } from "@/lib/members";
 import { writeAudit } from "@/lib/audit";
 import { route } from "@/lib/route";
 
-const PROJECT_ROLES = new Set(["owner", "admin", "editor", "viewer"]);
+const PROJECT_ROLES = new Set(["admin", "member"]);
 
 export const GET = route(async (
   req: NextRequest,
@@ -52,27 +52,23 @@ export const POST = route(async (
     async (_db, client) =>
       (
         await client.query(
-          "SELECT edm.is_member($1, 'admin') AS is_admin, edm.is_member($1, 'owner') AS is_owner",
+          "SELECT edm.is_member($1, 'admin') AS is_admin",
           [id],
         )
-      ).rows[0] as { is_admin: boolean; is_owner: boolean },
+      ).rows[0] as { is_admin: boolean },
   );
   if (!permission?.is_admin) return err(403, "无权管理项目成员");
 
   const body = (await readJson(req)) as Record<string, unknown> | null;
   const email =
     typeof body?.email === "string" ? body.email.trim().toLowerCase() : "";
-  const role = typeof body?.role === "string" ? body.role : "viewer";
+  const role = typeof body?.role === "string" ? body.role : "member";
   const name = typeof body?.name === "string" ? body.name.trim() : null;
   const password =
     typeof body?.password === "string" ? body.password : "";
   if (!/^[^@\s]+@[^@\s]+\.[^@\s]+$/.test(email)) return err(400, "邮箱格式不正确");
   if (!PROJECT_ROLES.has(role)) return err(400, "无效角色");
   if (password.length < 8) return err(400, "初始密码至少 8 位");
-
-  if (role === "owner" && !permission.is_owner) {
-    return err(403, "仅 owner 可授予 owner 角色");
-  }
 
   const result = await withUserContext(userOrErr.id, async (_db, client) => {
     const account = await provisionAccount(client, email, name, password);

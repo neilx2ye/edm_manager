@@ -92,7 +92,7 @@ export class RealtimeGateway {
       ws.close(1008, "unauthorized");
       return;
     }
-    const ok = await checkMembership(session.userId, projectId, "viewer");
+    const ok = await checkMembership(session.userId, projectId, "member");
     if (!ok) {
       ws.close(1003, "forbidden");
       return;
@@ -213,7 +213,7 @@ export class RealtimeGateway {
       (s) => s.projectId === projectId,
     );
     for (const sub of targets) {
-      const ok = await checkMembership(sub.userId, projectId, "viewer");
+      const ok = await checkMembership(sub.userId, projectId, "member");
       if (!ok) {
         sub.ws.close(1003, "membership revoked");
         this.subscribers.delete(sub);

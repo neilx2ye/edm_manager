@@ -69,7 +69,7 @@ async function withContext<T>(
 export async function checkMembership(
   userId: string,
   projectId: number,
-  minRole = "viewer",
+  minRole = "member",
 ): Promise<boolean> {
   const client = await appPool.connect();
   try {

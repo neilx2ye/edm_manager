@@ -14,7 +14,7 @@ interface ImageMeta {
 }
 
 /**
- * 读取图片原图（登录用户 viewer+ 或该项目 agent）。
+ * 读取图片原图（项目成员或该项目 agent）。
  * 同一路径既供管理页 <img> 渲染（走会话 cookie），也供 agent 用 Bearer key 拉取。
  */
 export const GET = route(async (
@@ -35,7 +35,7 @@ export const GET = route(async (
   }
   if (
     requester.kind === "user" &&
-    !(await checkMembership(requester.user.id, meta.projectId, "viewer"))
+    !(await checkMembership(requester.user.id, meta.projectId, "member"))
   ) {
     return err(403, "无权访问");
   }

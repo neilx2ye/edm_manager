@@ -111,7 +111,7 @@ export const projectMembers = edm.table(
     userId: uuid("user_id")
       .notNull()
       .references(() => users.id, { onDelete: "cascade" }),
-    role: text("role", { enum: ["owner", "admin", "editor", "viewer"] }).notNull(),
+    role: text("role", { enum: ["admin", "member"] }).notNull(),
     invitedBy: uuid("invited_by"),
     joinedAt: timestamp("joined_at", { withTimezone: true, mode: "date" })
       .notNull()

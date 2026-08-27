@@ -229,7 +229,7 @@ export default function Sidebar({
 
             {/* API 工具 */}
             <Link
-              href="/api-tools"
+              href={`/api-tools?projectId=${currentProjectId}`}
               className={`mb-0.5 block rounded-lg px-3 py-2 text-sm ${
                 onApiTools
                   ? "bg-indigo-50 font-medium text-indigo-700"

@@ -40,16 +40,15 @@ export function StatusBadge({ status }: { status: string }) {
 export function RoleBadge({ role }: { role: Role | null }) {
   if (!role) return null;
   const cls =
-    role === "owner"
-      ? "bg-indigo-100 text-indigo-700"
-      : role === "admin"
-        ? "bg-sky-100 text-sky-700"
-        : "bg-slate-100 text-slate-600";
+    role === "admin"
+      ? "bg-sky-100 text-sky-700"
+      : "bg-slate-100 text-slate-600";
+  const label = role === "admin" ? "管理员" : "成员";
   return (
     <span
       className={`inline-flex items-center rounded px-1.5 py-0.5 text-[11px] font-medium leading-none ${cls}`}
     >
-      {role}
+      {label}
     </span>
   );
 }

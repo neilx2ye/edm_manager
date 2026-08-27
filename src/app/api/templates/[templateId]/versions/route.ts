@@ -119,7 +119,7 @@ export const POST = route(async (
         return res.rows[0] ?? null;
       },
     );
-    if (!version) return err(403, "无权提交版本（需要 editor 及以上角色）");
+    if (!version) return err(403, "无权提交版本（需要项目成员角色）");
     await writeAudit({
       projectId: await templateProject(id),
       actorId: requester.user.id,

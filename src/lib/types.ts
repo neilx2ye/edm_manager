@@ -1,6 +1,7 @@
 /** 前后端共享类型（与 API 响应字段一一对应）。 */
 
-export type Role = "owner" | "admin" | "editor" | "viewer";
+/** 项目成员角色：管理员 / 非管理员（普通成员）。 */
+export type Role = "admin" | "member";
 
 export interface SessionUser {
   id: string;
@@ -18,6 +19,7 @@ export interface Project {
   createdAt: string;
   updatedAt: string;
   myRole: Role;
+  isOwner: boolean;
   templateCount: number;
   topicCount: number;
 }
