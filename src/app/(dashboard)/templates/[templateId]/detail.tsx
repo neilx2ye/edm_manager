@@ -7,6 +7,7 @@ import {
   useRef,
   useState,
   type ChangeEvent,
+  type ClipboardEvent as ReactClipboardEvent,
   type FormEvent,
   type PointerEvent as ReactPointerEvent,
 } from "react";
@@ -18,13 +19,13 @@ import CodeMirror, { type ReactCodeMirrorRef } from "@uiw/react-codemirror";
 import { html } from "@codemirror/lang-html";
 import { EditorView } from "@codemirror/view";
 import { api } from "@/lib/client-api";
+import { imageFileFromClipboard, imageTag } from "@/lib/clipboard";
 import type {
   JobKind,
   JobStatus,
   Image,
   LintIssue,
   Project,
-  Role,
   TemplateDetail as TemplateDetailT,
   Topic,
   Version,
@@ -44,7 +45,6 @@ import {
   inputCls,
 } from "@/components/ui";
 
-const CAN_EDIT: Role[] = ["admin", "member"];
 const ZOOMS = [50, 75, 100, 125];
 const PANEL_WIDTH_KEY = "edm.panelWidth";
 
@@ -117,7 +117,7 @@ export default function TemplateDetail({ templateId }: { templateId: number }) {
   const router = useRouter();
   const [template, setTemplate] = useState<TemplateDetailT | null>(null);
   const [versions, setVersions] = useState<Version[]>([]);
-  const [myRole, setMyRole] = useState<Role | null>(null);
+  const [isMember, setIsMember] = useState(false);
   const [selectedId, setSelectedId] = useState<number | null>(null);
   const [error, setError] = useState<string | null>(null);
   const [loading, setLoading] = useState(true);
@@ -161,8 +161,8 @@ export default function TemplateDetail({ templateId }: { templateId: number }) {
   selectedElementRef.current = selectedElement;
   const iframeApiRef = useRef<{ startTextEdit: () => void } | null>(null);
 
-  const canEdit = myRole !== null && CAN_EDIT.includes(myRole);
-  const canDelete = myRole === "admin";
+  const canEdit = isMember;
+  const canDelete = isMember;
 
   // 恢复上次拖拽后的面板宽度（仅客户端）
   useEffect(() => {
@@ -203,7 +203,7 @@ export default function TemplateDetail({ templateId }: { templateId: number }) {
           api.projects.list(),
         ]);
         setTemplate(t);
-        setMyRole(projects.find((p) => p.id === t.projectId)?.myRole ?? null);
+        setIsMember(projects.some((p) => p.id === t.projectId));
         const sorted = [...vs].sort((a, b) => b.id - a.id);
         setVersions(sorted);
         setSelectedId(sorted[0]?.id ?? null);
@@ -287,11 +287,32 @@ export default function TemplateDetail({ templateId }: { templateId: number }) {
     let hoverEl: Element | null = null;
     let selectedEl: Element | null = null;
     let editingEl: Element | null = null;
-    let editOriginalText = "";
+    let editOriginalHtml = "";
+    let editRich = false;
     let lastClick = { time: 0, x: 0, y: 0, el: null as Element | null };
 
     const asElement = (target: EventTarget | null): Element | null =>
       target && (target as Node).nodeType === 1 ? (target as Element) : null;
+
+    /** 是否包含 MSO 条件注释（这类注释序列化会丢失且破坏 Outlook 渲染）。 */
+    const hasConditionalComment = (el: Element): boolean => {
+      const walker = doc.createTreeWalker(el, NodeFilter.SHOW_COMMENT);
+      let node: Node | null;
+      while ((node = walker.nextNode())) {
+        if (/\[if|\[endif\]/i.test(node.textContent ?? "")) return true;
+      }
+      return false;
+    };
+
+    /** 该元素能否安全原地编辑文案（纯文本需简单区间；嵌套需无注释节点）。 */
+    const canEditText = (el: Element, range: TagRange, tag: string): boolean => {
+      if (VOID_TAGS.has(tag)) return false;
+      if (tag === "html" || tag === "body" || tag === "head") return false;
+      if (el.childElementCount === 0) {
+        return isSimpleTextRange(codeTextRef.current, range, tag);
+      }
+      return !hasConditionalComment(el);
+    };
 
     const onOver = (e: Event) => {
       const el = asElement(e.target);
@@ -322,11 +343,8 @@ export default function TemplateDetail({ templateId }: { templateId: number }) {
         el.id,
         tagIndex(doc, el),
       );
-      const textOnly = el.childElementCount === 0;
       const textEditable =
-        range !== null &&
-        textOnly &&
-        isSimpleTextRange(codeTextRef.current, range, tag);
+        range !== null && canEditText(el, range, tag);
       const editable =
         range === null
           ? null
@@ -366,18 +384,16 @@ export default function TemplateDetail({ templateId }: { templateId: number }) {
       lastClick = { time: now, x: me.clientX, y: me.clientY, el };
       if (isDouble) {
         const tag = el.tagName.toLowerCase();
-        if (el.childElementCount === 0 && !VOID_TAGS.has(tag)) {
-          const range = locateElement(
-            codeTextRef.current,
-            tag,
-            el.id,
-            tagIndex(doc, el),
-          );
-          if (range && isSimpleTextRange(codeTextRef.current, range, tag)) {
-            select(el);
-            startTextEditAt(el, me.clientX, me.clientY);
-            return;
-          }
+        const range = locateElement(
+          codeTextRef.current,
+          tag,
+          el.id,
+          tagIndex(doc, el),
+        );
+        if (range && canEditText(el, range, tag)) {
+          select(el);
+          startTextEditAt(el, me.clientX, me.clientY);
+          return;
         }
       }
       select(el);
@@ -389,10 +405,14 @@ export default function TemplateDetail({ templateId }: { templateId: number }) {
       clientX?: number,
       clientY?: number,
     ) => {
-      if (el.childElementCount !== 0) return;
+      if (VOID_TAGS.has(el.tagName.toLowerCase())) return;
       editingEl = el;
-      editOriginalText = editingEl.textContent ?? "";
-      editingEl.setAttribute("contenteditable", "plaintext-only");
+      editOriginalHtml = editingEl.innerHTML;
+      editRich = editingEl.childElementCount !== 0;
+      editingEl.setAttribute(
+        "contenteditable",
+        editRich ? "true" : "plaintext-only",
+      );
       editingEl.classList.add("__edm-editing");
       const sel = doc.getSelection();
       let range: Range | null = null;
@@ -422,15 +442,18 @@ export default function TemplateDetail({ templateId }: { templateId: number }) {
     const finishTextEdit = (commit: boolean) => {
       if (!editingEl) return;
       const el = editingEl;
-      const text = el.textContent ?? "";
+      if (commit) {
+        if (editRich) {
+          commitInnerHtmlEdit(el.innerHTML);
+        } else {
+          commitTextEdit(el.textContent ?? "");
+        }
+      } else {
+        el.innerHTML = editOriginalHtml;
+      }
       el.removeAttribute("contenteditable");
       el.classList.remove("__edm-editing");
       editingEl = null;
-      if (commit) {
-        commitTextEdit(text);
-      } else {
-        el.textContent = editOriginalText;
-      }
     };
 
     const onKeyDown = (e: Event) => {
@@ -587,6 +610,29 @@ export default function TemplateDetail({ templateId }: { templateId: number }) {
     }
     const html = codeTextRef.current;
     const next = replaceElementInnerText(html, sel.range, sel.tag, text);
+    if (next === html) return;
+    setCodeDraft(next);
+    setSelectedElement({
+      ...sel,
+      range: {
+        start: sel.range.start,
+        end: sel.range.end + (next.length - html.length),
+      },
+    });
+  }
+
+  /** 嵌套结构文案编辑提交：用 innerHTML 回写源码，保留子元素样式。 */
+  function commitInnerHtmlEdit(innerHtml: string) {
+    const sel = selectedElementRef.current;
+    if (
+      !sel ||
+      sel.range === null ||
+      (sel.editable !== "text" && sel.editable !== "link")
+    ) {
+      return;
+    }
+    const html = codeTextRef.current;
+    const next = replaceElementInnerHtml(html, sel.range, sel.tag, innerHtml);
     if (next === html) return;
     setCodeDraft(next);
     setSelectedElement({
@@ -917,6 +963,7 @@ export default function TemplateDetail({ templateId }: { templateId: number }) {
               </button>
               {editorOpen ? (
                 <VersionEditor
+                  projectId={template.projectId}
                   templateId={templateId}
                   baseHtml={selected?.html ?? ""}
                   onSubmitted={(v) => {
@@ -986,8 +1033,10 @@ export default function TemplateDetail({ templateId }: { templateId: number }) {
                 }
                 onClear={() => {
                   clearInspectorRef.current?.();
-                  setSelectedElement(null);
-                }}
+                    setSelectedElement(null);
+                  }}
+                projectId={template.projectId}
+                onPasteImageError={setCodeError}
               />
             ) : (
               <div className="flex min-h-0 flex-1 flex-col">
@@ -1245,10 +1294,12 @@ function VersionItem({
 }
 
 function VersionEditor({
+  projectId,
   templateId,
   baseHtml,
   onSubmitted,
 }: {
+  projectId: number;
   templateId: number;
   baseHtml: string;
   onSubmitted: (v: Version) => void;
@@ -1257,6 +1308,7 @@ function VersionEditor({
   const [note, setNote] = useState("");
   const [error, setError] = useState<string | null>(null);
   const [busy, setBusy] = useState(false);
+  const [pasteBusy, setPasteBusy] = useState(false);
 
   async function onSubmit(e: FormEvent) {
     e.preventDefault();
@@ -1278,17 +1330,50 @@ function VersionEditor({
     }
   }
 
+  /** 粘贴图片：上传到图片库，并在光标处插入 <img>。 */
+  async function onPaste(e: ReactClipboardEvent<HTMLTextAreaElement>) {
+    const file = imageFileFromClipboard(e.clipboardData);
+    if (!file) return;
+    e.preventDefault();
+    setError(null);
+    setPasteBusy(true);
+    // 事件对象在 await 之后不可再访问，先取元素与光标位置
+    const el = e.currentTarget;
+    const start = el.selectionStart ?? html.length;
+    const end = el.selectionEnd ?? start;
+    try {
+      const img = await api.images.upload(projectId, file);
+      const tag = imageTag(img.url, img.name);
+      setHtml((prev) => prev.slice(0, start) + tag + prev.slice(end));
+      // 光标移到插入内容之后
+      requestAnimationFrame(() => {
+        el.focus();
+        el.setSelectionRange(start + tag.length, start + tag.length);
+      });
+    } catch (err) {
+      setError(err instanceof Error ? err.message : "图片上传失败");
+    } finally {
+      setPasteBusy(false);
+    }
+  }
+
   return (
     <form onSubmit={onSubmit} className="space-y-2 px-4 pb-3">
       <textarea
         required
         rows={8}
         className={`${inputCls} font-mono text-xs`}
-        placeholder="粘贴或编辑 HTML 源码…"
+        placeholder="粘贴或编辑 HTML 源码…（可直接粘贴剪贴板图片，自动上传并插入 <img>）"
         value={html}
         onChange={(e) => setHtml(e.target.value)}
+        onPaste={(e) => void onPaste(e)}
       />
       <div className="flex items-center gap-2">
+        {pasteBusy ? (
+          <span className="shrink-0 text-xs text-indigo-500">
+            正在上传图片…
+          </span>
+        ) : null}
         <input
           className={`${inputCls} flex-1`}
           placeholder="提交说明（可选）"
@@ -1324,6 +1409,8 @@ function CodePanel({
   range,
   element,
   onClear,
+  projectId,
+  onPasteImageError,
 }: {
   value: string;
   onChange: (v: string) => void;
@@ -1335,8 +1422,44 @@ function CodePanel({
   range: TagRange | null;
   element: { tag: string; selector: string } | null;
   onClear: () => void;
+  projectId: number;
+  onPasteImageError: (msg: string) => void;
 }) {
   const cmRef = useRef<ReactCodeMirrorRef>(null);
+  const [pasteBusy, setPasteBusy] = useState(false);
+
+  // 粘贴上下文放 ref：粘贴扩展只创建一次，避免改变 extensions 数组重建编辑器
+  const pasteCtxRef = useRef({ projectId, onPasteImageError, setPasteBusy });
+  pasteCtxRef.current = { projectId, onPasteImageError, setPasteBusy };
+
+  const pasteImageExt = useMemo(
+    () =>
+      EditorView.domEventHandlers({
+        paste: (event, view) => {
+          const file = imageFileFromClipboard(event.clipboardData);
+          if (!file) return false;
+          event.preventDefault();
+          const { from, to } = view.state.selection.main;
+          const ctx = pasteCtxRef.current;
+          ctx.setPasteBusy(true);
+          api.images
+            .upload(ctx.projectId, file)
+            .then((img) => {
+              view.dispatch({
+                changes: { from, to, insert: imageTag(img.url, img.name) },
+              });
+            })
+            .catch((err: unknown) => {
+              ctx.onPasteImageError(
+                err instanceof Error ? err.message : "图片上传失败",
+              );
+            })
+            .finally(() => ctx.setPasteBusy(false));
+          return true;
+        },
+      }),
+    [],
+  );
 
   // 选中 DOM 节点后：在编辑器中选中并滚动到对应源码区间
   useEffect(() => {
@@ -1412,7 +1535,7 @@ function CodePanel({
           value={value}
           height="100%"
           theme="light"
-          extensions={[html(), editorUIScale]}
+          extensions={[html(), editorUIScale, pasteImageExt]}
           basicSetup={{
             foldGutter: false,
             highlightActiveLine: false,
@@ -1425,6 +1548,11 @@ function CodePanel({
         />
       </div>
 
+      {pasteBusy ? (
+        <div className="shrink-0 border-t border-indigo-100 bg-indigo-50 px-3 py-1.5 text-xs text-indigo-600">
+          正在上传剪贴板图片…
+        </div>
+      ) : null}
       {error ? (
         <div className="shrink-0 border-t border-rose-100 bg-rose-50 px-3 py-1.5 text-xs text-rose-600">
           {error}
@@ -1624,6 +1752,27 @@ function replaceElementInnerText(
   return (
     html.slice(0, openEnd + 1) + escapeHtmlText(text) + html.slice(m.index)
   );
+}
+
+/** 用 innerHTML 替换元素内部内容（支持嵌套结构，保留子元素样式）。 */
+function replaceElementInnerHtml(
+  html: string,
+  range: TagRange,
+  tag: string,
+  innerHtml: string,
+): string {
+  const openEnd = findTagEnd(html, range.start);
+  if (openEnd === -1) return html;
+  const closeRe = new RegExp(`</${tag}\\s*>`, "gi");
+  closeRe.lastIndex = openEnd + 1;
+  let closeStart = -1;
+  let m: RegExpExecArray | null;
+  // 取 range.end 之前最后一个闭合标签（即该元素自己的闭合标签，兼容同标签嵌套）
+  while ((m = closeRe.exec(html)) && m.index < range.end) {
+    closeStart = m.index;
+  }
+  if (closeStart <= openEnd) return html;
+  return html.slice(0, openEnd + 1) + innerHtml + html.slice(closeStart);
 }
 
 /** 判断元素源码区间内是否只有文本（可安全原地替换文案）。 */

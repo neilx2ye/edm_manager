@@ -73,8 +73,8 @@ async function main() {
 
   const projects = (await (
     await authed("/api/projects")
-  ).json()) as { id: number; name: string; myRole: string }[];
-  console.log("projects:", projects.map((p) => `${p.name}(${p.myRole})`));
+  ).json()) as { id: number; name: string }[];
+  console.log("projects:", projects.map((p) => p.name));
   const projectId = projects[0].id;
 
   const topics = (await (

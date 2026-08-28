@@ -16,6 +16,7 @@ export async function provisionAccount(
   email: string,
   name?: string | null,
   initialPassword?: string,
+  role: "admin" | "member" = "member",
 ): Promise<ProvisionedAccount> {
   const existing = await client.query(
     "SELECT id::text FROM auth.users WHERE email = $1",
@@ -31,10 +32,10 @@ export async function provisionAccount(
   const password = initialPassword;
   const hash = await hashPassword(password);
   const created = await client.query(
-    `INSERT INTO auth.users (name, email, password_hash, must_change_password)
-     VALUES ($1, $2, $3, true)
+    `INSERT INTO auth.users (name, email, password_hash, must_change_password, role)
+     VALUES ($1, $2, $3, true, $4)
      RETURNING id::text`,
-    [name || email.split("@")[0] || email, email, hash],
+    [name || email.split("@")[0] || email, email, hash, role],
   );
   return {
     userId: created.rows[0].id,

@@ -1,7 +1,7 @@
 /**
- * 角色矩阵测试（两级角色）：
- *  - member（非管理员）可查看与编辑，不能管理成员 / API key，不能访问全局用户管理
- *  - admin（管理员）可邀请新用户、分配项目
+ * 角色矩阵测试（系统级角色）：
+ *  - member（成员）可查看、编辑与管理项目（含 API key），不能管理用户
+ *  - admin（管理员）额外可邀请新用户、分配项目与设置系统角色
  */
 export {};
 
@@ -56,7 +56,6 @@ async function main() {
     method: "POST",
     body: JSON.stringify({
       email: "member@edm.local",
-      role: "member",
       name: "普通成员",
       password: "member123456",
     }),
@@ -99,7 +98,7 @@ async function main() {
   const mgrRes = await fetch(`${BASE}/api/projects/${projectId}/members`, {
     ...auth(member),
     method: "POST",
-    body: JSON.stringify({ email: "x@edm.local", role: "member" }),
+    body: JSON.stringify({ email: "x@edm.local", password: "x12345678" }),
   });
   check("member 不能添加成员", mgrRes.status === 403);
 
@@ -107,13 +106,13 @@ async function main() {
   const ulistRes = await fetch(`${BASE}/api/users`, auth(member));
   check("member 不能访问用户管理", ulistRes.status === 403);
 
-  // member 不能管理 API key
+  // member 与管理员一样可管理 API key（唯一区别只在用户管理）
   const keyRes = await fetch(`${BASE}/api/projects/${projectId}/api-keys`, {
     ...auth(member),
     method: "POST",
     body: JSON.stringify({ name: "forbidden" }),
   });
-  check("member 不能管理 API key", keyRes.status === 403);
+  check("member 可管理 API key（与管理员一致）", keyRes.status === 201);
 
   // admin 可通过全局用户管理邀请用户并分配项目
   const gmEmail = `gm-${Date.now()}@edm.local`;
@@ -124,10 +123,35 @@ async function main() {
       email: gmEmail,
       name: "全局成员",
       password: "global123",
-      assignments: [{ projectId, role: "member" }],
+      assignments: [{ projectId }],
     }),
   });
-  check("admin 可邀请用户并分配项目", gmRes.status === 201);
+  const gm = (await gmRes.json()) as { id: string };
+  check("admin 可邀请用户并分配项目", gmRes.status === 201 && Boolean(gm.id));
+
+  // admin 可设置用户系统角色（设为管理员再改回成员）
+  const promoteRes = await fetch(`${BASE}/api/users/${gm.id}`, {
+    ...auth(admin),
+    method: "PATCH",
+    body: JSON.stringify({ role: "admin" }),
+  });
+  const demoteRes = await fetch(`${BASE}/api/users/${gm.id}`, {
+    ...auth(admin),
+    method: "PATCH",
+    body: JSON.stringify({ role: "member" }),
+  });
+  check(
+    "admin 可设置用户系统角色",
+    promoteRes.status === 200 && demoteRes.status === 200,
+  );
+
+  // member 不能设置用户系统角色
+  const memberSetRole = await fetch(`${BASE}/api/users/${gm.id}`, {
+    ...auth(member),
+    method: "PATCH",
+    body: JSON.stringify({ role: "admin" }),
+  });
+  check("member 不能设置用户系统角色", memberSetRole.status === 403);
 
   console.log(
     failures === 0 ? "\n✅ 角色矩阵测试通过" : `\n❌ ${failures} 项失败`,

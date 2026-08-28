@@ -1,10 +1,12 @@
 import { auth } from "@/auth/auth";
+import type { Role } from "@/lib/types";
 
 export interface SessionUser {
   id: string;
   email: string;
   name: string;
   mustChangePassword: boolean;
+  role: Role;
 }
 
 /** 服务端获取当前会话用户；未登录返回 null。 */
@@ -19,6 +21,10 @@ export async function getSessionUser(): Promise<SessionUser | null> {
     mustChangePassword: Boolean(
       (user as unknown as Record<string, unknown>).mustChangePassword,
     ),
+    role:
+      (user as unknown as Record<string, unknown>).role === "admin"
+        ? "admin"
+        : "member",
   };
 }
 

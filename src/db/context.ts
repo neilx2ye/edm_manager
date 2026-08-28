@@ -1,6 +1,6 @@
 import type { PoolClient } from "pg";
 import { drizzle, type NodePgDatabase } from "drizzle-orm/node-postgres";
-import { appPool } from "./pools";
+import { appPool, servicePool } from "./pools";
 import * as schema from "./schema";
 
 export type Db = NodePgDatabase<typeof schema>;
@@ -69,21 +69,19 @@ async function withContext<T>(
 export async function checkMembership(
   userId: string,
   projectId: number,
-  minRole = "member",
 ): Promise<boolean> {
-  const client = await appPool.connect();
-  try {
-    await client.query("BEGIN");
-    await client.query("SELECT set_config('edm.current_user_id', $1, true)", [
-      userId,
-    ]);
-    const res = await client.query(
-      "SELECT edm.is_member($1::bigint, $2::text) AS ok",
-      [projectId, minRole],
-    );
-    await client.query("ROLLBACK");
-    return res.rows[0]?.ok === true;
-  } finally {
-    client.release();
-  }
+  const res = await servicePool.query(
+    "SELECT edm.is_member_for($1::uuid, $2::bigint) AS ok",
+    [userId, projectId],
+  );
+  return res.rows[0]?.ok === true;
+}
+
+/** 指定用户是否为系统管理员（用户管理的准入条件）。 */
+export async function isGlobalAdmin(userId: string): Promise<boolean> {
+  const res = await servicePool.query(
+    "SELECT edm.is_admin_for($1::uuid) AS ok",
+    [userId],
+  );
+  return res.rows[0]?.ok === true;
 }

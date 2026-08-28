@@ -99,14 +99,13 @@ async function main() {
   );
   check("移动模板到另一主题", moveRes.status === 200);
 
-  // 6. 邀请成员：项目 + 角色（管理员/成员）+ 初始密码
+  // 6. 邀请成员：项目 + 初始密码
   const email = `invite-${Date.now()}@edm.local`;
   const inviteRes = await fetch(`${BASE}/api/projects/${projectId}/members`, {
     ...auth(admin),
     method: "POST",
     body: JSON.stringify({
       email,
-      role: "member",
       name: "受邀成员",
       password: "invite123456",
     }),
@@ -147,7 +146,7 @@ async function main() {
       email: gmEmail,
       name: "全局成员",
       password: "global123",
-      assignments: [{ projectId, role: "member" }],
+      assignments: [{ projectId }],
     }),
   });
   const gm = (await gmRes.json()) as { id: string };
@@ -156,7 +155,7 @@ async function main() {
   const putRes = await fetch(`${BASE}/api/users/${gm.id}/memberships`, {
     ...auth(admin),
     method: "PUT",
-    body: JSON.stringify({ projectId, role: "admin" }),
+    body: JSON.stringify({ projectId }),
   });
   check("变更成员项目角色", putRes.status === 200);
 

@@ -5,12 +5,11 @@ import Link from "next/link";
 import { usePathname, useRouter, useSearchParams } from "next/navigation";
 import { signOut } from "next-auth/react";
 import { api } from "@/lib/client-api";
-import type { Project, Topic } from "@/lib/types";
+import type { Project, Role, Topic } from "@/lib/types";
 import {
   ErrorText,
   Field,
   Modal,
-  RoleBadge,
   btnPrimary,
   btnSecondary,
   inputCls,
@@ -19,7 +18,7 @@ import {
 export default function Sidebar({
   user,
 }: {
-  user: { name: string; email: string };
+  user: { name: string; email: string; role: Role };
 }) {
   const router = useRouter();
   const pathname = usePathname();
@@ -96,12 +95,8 @@ export default function Sidebar({
             <span className="block truncate text-sm font-medium text-slate-900">
               {currentProject?.name ?? "选择项目"}
             </span>
-            <span className="mt-0.5 block">
-              {currentProject ? (
-                <RoleBadge role={currentProject.myRole} />
-              ) : (
-                <span className="text-[11px] text-slate-400">项目 = 工作区</span>
-              )}
+            <span className="mt-0.5 block text-[11px] text-slate-400">
+              项目 = 工作区
             </span>
           </span>
           <span
@@ -136,7 +131,6 @@ export default function Sidebar({
                       }`}
                     >
                       <span className="truncate">{p.name}</span>
-                      <RoleBadge role={p.myRole} />
                     </button>
                   );
                 })}
@@ -281,16 +275,18 @@ export default function Sidebar({
             退出
           </button>
         </div>
-        <Link
-          href="/users"
-          className={`block rounded-lg px-2 py-1.5 text-sm ${
-            pathname === "/users"
-              ? "bg-indigo-50 font-medium text-indigo-700"
-              : "text-slate-600 hover:bg-slate-100"
-          }`}
-        >
-          👥 用户管理
-        </Link>
+        {user.role === "admin" ? (
+          <Link
+            href="/users"
+            className={`block rounded-lg px-2 py-1.5 text-sm ${
+              pathname === "/users"
+                ? "bg-indigo-50 font-medium text-indigo-700"
+                : "text-slate-600 hover:bg-slate-100"
+            }`}
+          >
+            👥 用户管理
+          </Link>
+        ) : null}
       </div>
 
       {showCreate ? (

@@ -1,5 +1,6 @@
 import { NextRequest } from "next/server";
 import { randomUUID } from "node:crypto";
+import { createHash } from "node:crypto";
 import { err, getRequester, ok, parseId } from "@/lib/api";
 import { withAgentContext, withUserContext, type Db } from "@/db/context";
 import { servicePool } from "@/db/pools";
@@ -80,6 +81,7 @@ export const POST = route(async (
   if (!matchesImageMagic(buf, spec.mime)) {
     return err(415, "文件内容与图片类型不符");
   }
+  const sha256 = createHash("sha256").update(buf).digest("hex");
 
   const rawName = (form.get("name") as string | null)?.trim() ?? "";
   const name = (rawName || file.name.replace(/\.[^.]+$/, "") || "未命名")
@@ -89,13 +91,15 @@ export const POST = route(async (
   // 文件名由服务端生成（uuid + 白名单扩展名），不信任客户端文件名
   const relPath = imageRelPath(id, `${randomUUID()}.${spec.ext}`);
 
-  const inserted =
+  const outcome =
     requester.kind === "user"
       ? await withUserContext(requester.user.id, async (_db, client) => {
           const res = await client.query(
             `INSERT INTO edm.images
-               (project_id, name, content_type, size_bytes, storage_path, created_by)
-             VALUES ($1, $2, $3, $4, $5, $6)
+               (project_id, name, content_type, size_bytes, storage_path, created_by, sha256)
+             VALUES ($1, $2, $3, $4, $5, $6, $7)
+             ON CONFLICT (project_id, sha256) WHERE sha256 IS NOT NULL
+             DO NOTHING
              RETURNING id, name, content_type, size_bytes, created_at`,
             [
               id,
@@ -104,17 +108,27 @@ export const POST = route(async (
               buf.length,
               relPath,
               requester.user.id,
+              sha256,
             ],
           );
-          return res.rows[0] ?? null;
+          if (res.rows[0]) return { image: res.rows[0], isNew: true };
+          const sel = await client.query(
+            `SELECT id, name, content_type, size_bytes, created_at
+               FROM edm.images
+              WHERE project_id = $1 AND sha256 = $2`,
+            [id, sha256],
+          );
+          return sel.rows[0] ? { image: sel.rows[0], isNew: false } : null;
         })
       : await withAgentContext(
           id,
           async (_db, client) => {
             const res = await client.query(
               `INSERT INTO edm.images
-                 (project_id, name, content_type, size_bytes, storage_path, source_api_key_id)
-               VALUES ($1, $2, $3, $4, $5, $6)
+                 (project_id, name, content_type, size_bytes, storage_path, source_api_key_id, sha256)
+               VALUES ($1, $2, $3, $4, $5, $6, $7)
+               ON CONFLICT (project_id, sha256) WHERE sha256 IS NOT NULL
+               DO NOTHING
                RETURNING id, name, content_type, size_bytes, created_at`,
               [
                 id,
@@ -123,38 +137,60 @@ export const POST = route(async (
                 buf.length,
                 relPath,
                 requester.key.keyId,
+                sha256,
               ],
             );
-            return res.rows[0] ?? null;
+            if (res.rows[0]) return { image: res.rows[0], isNew: true };
+            const sel = await client.query(
+              `SELECT id, name, content_type, size_bytes, created_at
+                 FROM edm.images
+                WHERE project_id = $1 AND sha256 = $2`,
+              [id, sha256],
+            );
+            return sel.rows[0] ? { image: sel.rows[0], isNew: false } : null;
           },
           { keyId: requester.key.keyId },
         );
 
-  if (!inserted) return err(403, "无权上传图片");
+  if (!outcome) return err(403, "无权上传图片");
+  const { image, isNew } = outcome;
+  const imageId = Number(image.id);
 
-  // 落盘失败则回删记录，保持数据库与磁盘一致
-  const imageId = Number(inserted.id);
-  try {
-    await writeImage(relPath, buf);
-  } catch (e) {
-    await servicePool
-      .query("DELETE FROM edm.images WHERE id = $1", [imageId])
-      .catch(() => undefined);
-    throw e;
+  if (isNew) {
+    // 落盘失败则回删记录，保持数据库与磁盘一致
+    try {
+      await writeImage(relPath, buf);
+    } catch (e) {
+      await servicePool
+        .query("DELETE FROM edm.images WHERE id = $1", [imageId])
+        .catch(() => undefined);
+      throw e;
+    }
   }
 
   await writeAudit({
     projectId: id,
     actorId: requester.kind === "user" ? requester.user.id : null,
-    action: "image.uploaded",
+    action: isNew ? "image.uploaded" : "image.upload_deduplicated",
     entityType: "image",
     entityId: imageId,
-    payload: { name, contentType: spec.mime, sizeBytes: buf.length },
+    payload: {
+      name: image.name,
+      contentType: spec.mime,
+      sizeBytes: buf.length,
+      sha256,
+      deduplicated: !isNew,
+    },
   });
 
   return ok(
-    { ...inserted, project_id: id, url: `/api/images/${imageId}` },
-    201,
+    {
+      ...image,
+      project_id: id,
+      url: `/api/images/${imageId}`,
+      deduplicated: !isNew,
+    },
+    isNew ? 201 : 200,
   );
 });
 

@@ -1,10 +1,11 @@
 import { NextRequest } from "next/server";
 import { err, getRequester, ok, parseId, requireUser } from "@/lib/api";
-import { withUserContext } from "@/db/context";
+import { isGlobalAdmin } from "@/db/context";
+import { servicePool } from "@/db/pools";
 import { writeAudit } from "@/lib/audit";
 import { route } from "@/lib/route";
 
-/** 移除用户在某项目中的成员资格（全局用户管理）。 */
+/** 移除用户在某项目中的成员资格（仅系统管理员）。 */
 export const DELETE = route(async (
   req: NextRequest,
   { params }: { params: Promise<{ userId: string; projectId: string }> },
@@ -16,26 +17,20 @@ export const DELETE = route(async (
   const requester = await getRequester(req);
   const userOrErr = requireUser(requester);
   if ("status" in userOrErr) return userOrErr;
+  if (!(await isGlobalAdmin(userOrErr.id))) {
+    return err(403, "仅系统管理员可管理用户");
+  }
 
-  const result = await withUserContext(userOrErr.id, async (_db, client) => {
-    const isAdmin = (
-      await client.query("SELECT edm.is_member($1, 'admin') AS ok", [pid])
-    ).rows[0]?.ok;
-    if (isAdmin !== true) return { error: "无权管理该项目成员" };
+  const res = await servicePool.query(
+    "DELETE FROM edm.project_members WHERE project_id = $1 AND user_id = $2",
+    [pid, userId],
+  );
+  if (res.rowCount === 0) return err(404, "成员资格不存在");
 
-    const res = await client.query(
-      "DELETE FROM edm.project_members WHERE project_id = $1 AND user_id = $2",
-      [pid, userId],
-    );
-    if (res.rowCount === 0) return { error: "成员资格不存在" };
-    return { ok: true };
-  });
-
-  if ("error" in result) return err(403, result.error as string);
   await writeAudit({
     projectId: pid,
     actorId: userOrErr.id,
-    action: "project.member_removed",
+    action: "user.project_unassigned",
     entityType: "project",
     entityId: pid,
     payload: { userId },

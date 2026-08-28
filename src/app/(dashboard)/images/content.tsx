@@ -10,6 +10,7 @@ import {
 import Link from "next/link";
 import { useSearchParams } from "next/navigation";
 import { api } from "@/lib/client-api";
+import { imageFileFromClipboard } from "@/lib/clipboard";
 import type { Image, Project } from "@/lib/types";
 import { formatBytes, formatDateTime } from "@/lib/format";
 import {
@@ -18,7 +19,6 @@ import {
   ErrorText,
   Field,
   Modal,
-  RoleBadge,
   Spinner,
   btnPrimary,
   btnSecondary,
@@ -36,6 +36,13 @@ export default function ImagesContent() {
   const [showUpload, setShowUpload] = useState(false);
   const [deleting, setDeleting] = useState<Image | null>(null);
   const [copiedId, setCopiedId] = useState<number | null>(null);
+  const [pasteBusy, setPasteBusy] = useState(false);
+  const [toast, setToast] = useState<string | null>(null);
+  const [renamingId, setRenamingId] = useState<number | null>(null);
+  const [renameValue, setRenameValue] = useState("");
+  const [renameBusy, setRenameBusy] = useState(false);
+  const [renameError, setRenameError] = useState<string | null>(null);
+  const toastTimerRef = useRef<number | null>(null);
 
   const load = useCallback(async () => {
     if (!projectId) {
@@ -62,6 +69,57 @@ export default function ImagesContent() {
     void load();
   }, [load]);
 
+  const canUpload = Boolean(project);
+  const canDelete = Boolean(project);
+
+  function showToast(message: string) {
+    setToast(message);
+    if (toastTimerRef.current) clearTimeout(toastTimerRef.current);
+    toastTimerRef.current = window.setTimeout(() => setToast(null), 2600);
+  }
+
+  // 卸载时清理提示定时器
+  useEffect(() => {
+    return () => {
+      if (toastTimerRef.current) clearTimeout(toastTimerRef.current);
+    };
+  }, []);
+
+  const uploadPasted = useCallback(
+    async (file: File) => {
+      if (!projectId) return;
+      setError(null);
+      setPasteBusy(true);
+      try {
+        const img = await api.images.upload(projectId, file);
+        if (img.deduplicated) {
+          showToast(`图片已存在，复用「${img.name}」`);
+        } else {
+          setImages((prev) => [img, ...prev]);
+          showToast(`已上传「${img.name}」`);
+        }
+      } catch (err) {
+        setError(err instanceof Error ? err.message : "粘贴上传失败");
+      } finally {
+        setPasteBusy(false);
+      }
+    },
+    [projectId],
+  );
+
+  // 页面级粘贴：剪贴板里有图片就上传到图库（弹窗打开时由弹窗自己处理）
+  useEffect(() => {
+    if (!projectId || !canUpload || showUpload) return;
+    const onPaste = (e: ClipboardEvent) => {
+      const file = imageFileFromClipboard(e.clipboardData);
+      if (!file) return;
+      e.preventDefault();
+      void uploadPasted(file);
+    };
+    document.addEventListener("paste", onPaste);
+    return () => document.removeEventListener("paste", onPaste);
+  }, [projectId, canUpload, showUpload, uploadPasted]);
+
   if (!projectId) {
     return (
       <div className="p-8">
@@ -70,10 +128,6 @@ export default function ImagesContent() {
     );
   }
   if (loading) return <Spinner />;
-
-  const canUpload =
-    project?.myRole === "admin" || project?.myRole === "member";
-  const canDelete = project?.myRole === "admin";
 
   async function copyUrl(img: Image) {
     const absolute = `${window.location.origin}${img.url}`;
@@ -87,6 +141,46 @@ export default function ImagesContent() {
     }
   }
 
+  function startRename(img: Image) {
+    setRenamingId(img.id);
+    setRenameValue(img.name);
+    setRenameError(null);
+  }
+
+  function cancelRename() {
+    setRenamingId(null);
+    setRenameValue("");
+    setRenameError(null);
+  }
+
+  async function submitRename(e: FormEvent) {
+    e.preventDefault();
+    const next = renameValue.trim();
+    if (!renamingId || !next) {
+      setRenameError("名称不能为空");
+      return;
+    }
+    const original = images.find((i) => i.id === renamingId)?.name;
+    if (!original || next === original) {
+      cancelRename();
+      return;
+    }
+    setRenameBusy(true);
+    setRenameError(null);
+    try {
+      await api.images.rename(renamingId, next);
+      setImages((prev) =>
+        prev.map((i) => (i.id === renamingId ? { ...i, name: next } : i)),
+      );
+      showToast(`已重命名为「${next}」`);
+      cancelRename();
+    } catch (err) {
+      setRenameError(err instanceof Error ? err.message : "重命名失败");
+    } finally {
+      setRenameBusy(false);
+    }
+  }
+
   return (
     <div className="p-6">
       <div className="mb-5 flex flex-wrap items-center gap-3">
@@ -95,11 +189,15 @@ export default function ImagesContent() {
             {project?.name ?? "图片库"}
           </h1>
           <p className="mt-0.5 flex items-center gap-2 text-xs text-slate-400">
-            <span>AI agent 可通过 API 上传，图片 URL 可直接用于邮件模板</span>
-            {project ? <RoleBadge role={project.myRole} /> : null}
+            <span>
+              AI agent 可通过 API 上传；也支持 Ctrl+V / ⌘V 粘贴剪贴板图片，相同内容自动复用
+            </span>
           </p>
         </div>
         <div className="ml-auto flex items-center gap-2">
+          {pasteBusy ? (
+            <span className="text-xs text-indigo-500">正在上传粘贴的图片…</span>
+          ) : null}
           {project ? (
             <Link
               href={`/projects/${project.id}/settings`}
@@ -125,7 +223,7 @@ export default function ImagesContent() {
       {images.length === 0 ? (
         <EmptyState
           title="还没有图片"
-          hint="上传图片后，agent 可把返回的 URL 放进邮件 HTML"
+          hint="上传图片后，agent 可把返回的 URL 放进邮件 HTML；也可直接 Ctrl+V 粘贴图片"
         >
           <button
             type="button"
@@ -158,9 +256,61 @@ export default function ImagesContent() {
                 />
               </a>
               <div className="space-y-1 p-3">
-                <p className="truncate text-sm font-medium text-slate-800" title={img.name}>
-                  {img.name}
-                </p>
+                {renamingId === img.id ? (
+                  <form onSubmit={(e) => void submitRename(e)} className="space-y-1">
+                    <input
+                      autoFocus
+                      value={renameValue}
+                      disabled={renameBusy}
+                      maxLength={200}
+                      onChange={(e) => setRenameValue(e.target.value)}
+                      onKeyDown={(e) => {
+                        if (e.key === "Escape") cancelRename();
+                      }}
+                      className="w-full rounded border border-indigo-300 px-1.5 py-0.5 text-sm text-slate-800 outline-none focus:border-indigo-500"
+                    />
+                    {renameError ? (
+                      <p className="text-xs text-rose-600">{renameError}</p>
+                    ) : null}
+                    <div className="flex gap-1">
+                      <button
+                        type="submit"
+                        disabled={renameBusy}
+                        className="flex-1 rounded border border-indigo-300 px-2 py-0.5 text-xs text-indigo-600 hover:bg-indigo-50 disabled:opacity-50"
+                      >
+                        {renameBusy ? "保存中…" : "保存"}
+                      </button>
+                      <button
+                        type="button"
+                        disabled={renameBusy}
+                        onClick={cancelRename}
+                        className="rounded border border-slate-300 px-2 py-0.5 text-xs text-slate-600 hover:bg-slate-50"
+                      >
+                        取消
+                      </button>
+                    </div>
+                  </form>
+                ) : (
+                  <div className="flex items-center gap-1">
+                    <p
+                      className="min-w-0 flex-1 truncate text-sm font-medium text-slate-800"
+                      title={img.name}
+                    >
+                      {img.name}
+                    </p>
+                    {canUpload ? (
+                      <button
+                        type="button"
+                        title="重命名"
+                        aria-label="重命名"
+                        onClick={() => startRename(img)}
+                        className="shrink-0 rounded p-0.5 text-slate-400 hover:bg-slate-100 hover:text-slate-600"
+                      >
+                        ✏️
+                      </button>
+                    ) : null}
+                  </div>
+                )}
                 <p className="text-xs text-slate-400">
                   {formatBytes(img.sizeBytes)} · {formatDateTime(img.createdAt)}
                 </p>
@@ -199,7 +349,11 @@ export default function ImagesContent() {
           onClose={() => setShowUpload(false)}
           onUploaded={(img) => {
             setShowUpload(false);
-            setImages((prev) => [img, ...prev]);
+            if (img.deduplicated) {
+              showToast(`图片已存在，复用「${img.name}」`);
+            } else {
+              setImages((prev) => [img, ...prev]);
+            }
           }}
         />
       ) : null}
@@ -224,6 +378,12 @@ export default function ImagesContent() {
           }}
         />
       ) : null}
+
+      {toast ? (
+        <div className="fixed bottom-4 right-4 z-50 rounded-lg bg-slate-900 px-3 py-2 text-sm text-white shadow-lg">
+          {toast}
+        </div>
+      ) : null}
     </div>
   );
 }
@@ -245,7 +405,7 @@ function UploadModal({
   const [dragging, setDragging] = useState(false);
   const inputRef = useRef<HTMLInputElement>(null);
 
-  function selectFile(f: File | null) {
+  const selectFile = useCallback((f: File | null) => {
     if (!f) return;
     if (!/^image\/(png|jpe?g|webp|gif)$/.test(f.type)) {
       setError("仅支持 PNG / JPEG / WebP / GIF");
@@ -259,7 +419,19 @@ function UploadModal({
     setFile(f);
     setName((prev) => prev || f.name.replace(/\.[^.]+$/, ""));
     setPreview(URL.createObjectURL(f));
-  }
+  }, []);
+
+  // 弹窗内支持直接 Ctrl+V 粘贴图片
+  useEffect(() => {
+    const onPaste = (e: ClipboardEvent) => {
+      const file = imageFileFromClipboard(e.clipboardData);
+      if (!file) return;
+      e.preventDefault();
+      selectFile(file);
+    };
+    document.addEventListener("paste", onPaste);
+    return () => document.removeEventListener("paste", onPaste);
+  }, [selectFile]);
 
   async function onSubmit(e: FormEvent) {
     e.preventDefault();
@@ -306,7 +478,7 @@ function UploadModal({
           ) : (
             <>
               <span className="text-2xl">🖼️</span>
-              <span>点击选择或拖拽图片到此处</span>
+              <span>点击选择、拖拽或 Ctrl+V 粘贴图片到此处</span>
               <span className="text-xs text-slate-400">
                 PNG / JPEG / WebP / GIF，最大 10 MB
               </span>

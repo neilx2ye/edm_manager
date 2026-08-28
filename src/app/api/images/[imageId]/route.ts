@@ -1,5 +1,5 @@
 import { NextRequest } from "next/server";
-import { err, getRequester, ok, parseId } from "@/lib/api";
+import { err, getRequester, ok, parseId, readJson } from "@/lib/api";
 import { checkMembership, withAgentContext, withUserContext } from "@/db/context";
 import { servicePool } from "@/db/pools";
 import { writeAudit } from "@/lib/audit";
@@ -35,7 +35,7 @@ export const GET = route(async (
   }
   if (
     requester.kind === "user" &&
-    !(await checkMembership(requester.user.id, meta.projectId, "member"))
+    !(await checkMembership(requester.user.id, meta.projectId))
   ) {
     return err(403, "无权访问");
   }
@@ -106,6 +106,54 @@ export const DELETE = route(async (
   });
 
   return ok({ ok: true });
+});
+
+/** 重命名图片：项目成员（member+）。 */
+export const PATCH = route(async (
+  req: NextRequest,
+  { params }: { params: Promise<{ imageId: string }> },
+) => {
+  const { imageId } = await params;
+  const id = parseId(imageId);
+  if (!id) return err(400, "无效图片 ID");
+
+  const body = (await readJson(req)) as Record<string, unknown> | null;
+  const name =
+    typeof body?.name === "string"
+      ? body.name.replace(/[\r\n\t]/g, " ").trim()
+      : "";
+  if (!name) return err(400, "名称不能为空");
+  if (name.length > 200) return err(400, "名称不能超过 200 字符");
+
+  const requester = await getRequester(req);
+  if (requester.kind === "anon") return err(401, "认证失败");
+  if (requester.kind === "agent") return err(403, "仅项目成员可重命名图片");
+
+  const meta = await imageMeta(id);
+  if (!meta) return err(404, "图片不存在");
+
+  const row = await withUserContext(requester.user.id, async (_db, client) => {
+    const res = await client.query(
+      `UPDATE edm.images
+          SET name = $2
+        WHERE id = $1
+        RETURNING id, name, '/api/images/' || id AS url`,
+      [id, name],
+    );
+    return res.rows[0] ?? null;
+  });
+  if (!row) return err(403, "无权重命名该图片");
+
+  await writeAudit({
+    projectId: meta.projectId,
+    actorId: requester.user.id,
+    action: "image.renamed",
+    entityType: "image",
+    entityId: id,
+    payload: { from: meta.name, to: name },
+  });
+
+  return ok(row);
 });
 
 async function imageMeta(imageId: number): Promise<ImageMeta | null> {

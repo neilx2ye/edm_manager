@@ -66,8 +66,8 @@ async function main() {
     if (existing.rowCount === 0) {
       const hash = await hashPassword("admin123456");
       const created = await client.query(
-        `INSERT INTO auth.users (name, email, password_hash, must_change_password)
-         VALUES ('EDM 管理员', 'admin@edm.local', $1, false)
+        `INSERT INTO auth.users (name, email, password_hash, must_change_password, role)
+         VALUES ('EDM 管理员', 'admin@edm.local', $1, false, 'admin')
          RETURNING id::text`,
         [hash],
       );
@@ -88,8 +88,8 @@ async function main() {
       [],
     );
     await client.query(
-      `INSERT INTO edm.project_members (project_id, user_id, role, invited_by)
-       VALUES ($1, $2, 'admin', $2)
+      `INSERT INTO edm.project_members (project_id, user_id, invited_by)
+       VALUES ($1, $2, $2)
        ON CONFLICT DO NOTHING`,
       [projectId, userId],
     );

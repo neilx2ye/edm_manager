@@ -15,20 +15,13 @@ export const GET = route(async (req: NextRequest) => {
               p.owner_id::text AS owner_id,
               p.agent_can_approve,
               p.created_at, p.updated_at,
-              CASE WHEN p.owner_id = edm.current_user_id()
-                   THEN 'admin'
-                   ELSE COALESCE((SELECT pm.role
-                                   FROM edm.project_members pm
-                                  WHERE pm.project_id = p.id
-                                    AND pm.user_id = edm.current_user_id()), 'member')
-              END AS my_role,
               (SELECT count(*)
                  FROM edm.templates t
                  JOIN edm.topics tp ON tp.id = t.topic_id
                 WHERE tp.project_id = p.id)::int AS template_count,
               (SELECT count(*) FROM edm.topics tp WHERE tp.project_id = p.id)::int AS topic_count
          FROM edm.projects p
-        WHERE edm.is_member(p.id, 'member')
+        WHERE edm.is_member(p.id)
         ORDER BY p.updated_at DESC`,
     );
     return res.rows;
@@ -37,9 +30,7 @@ export const GET = route(async (req: NextRequest) => {
   return ok(
     projects.map((p) => ({
       ...p,
-      myRole: p.my_role ?? "member",
       isOwner: p.owner_id === userOrErr.id,
-      my_role: undefined,
     })),
   );
 });
@@ -68,8 +59,8 @@ export const POST = route(async (req: NextRequest) => {
     );
     const created = res.rows[0];
     await client.query(
-      `INSERT INTO edm.project_members (project_id, user_id, role, invited_by)
-       VALUES ($1, $2, 'admin', $2)`,
+      `INSERT INTO edm.project_members (project_id, user_id, invited_by)
+       VALUES ($1, $2, $2)`,
       [created.id, userOrErr.id],
     );
     return created;

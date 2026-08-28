@@ -28,6 +28,7 @@ export const users = auth.table("users", {
   image: text("image"),
   passwordHash: text("password_hash"),
   mustChangePassword: boolean("must_change_password").notNull().default(false),
+  role: text("role", { enum: ["admin", "member"] }).notNull().default("member"),
   createdAt: timestamp("createdAt", { withTimezone: true, mode: "date" })
     .notNull()
     .defaultNow(),
@@ -111,7 +112,6 @@ export const projectMembers = edm.table(
     userId: uuid("user_id")
       .notNull()
       .references(() => users.id, { onDelete: "cascade" }),
-    role: text("role", { enum: ["admin", "member"] }).notNull(),
     invitedBy: uuid("invited_by"),
     joinedAt: timestamp("joined_at", { withTimezone: true, mode: "date" })
       .notNull()

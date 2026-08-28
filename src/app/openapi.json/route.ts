@@ -146,7 +146,10 @@ const OPENAPI_DOC = {
         },
         responses: {
           201: {
-            description: "已上传，返回图片对象（含 url，可直接嵌入邮件 HTML）",
+            description:
+              "已上传，返回图片对象（含 url，可直接嵌入邮件 HTML）。" +
+              "同一项目内内容相同的图片会自动复用已有记录，" +
+              "返回时带 deduplicated: true，不产生重复条目。",
           },
         },
       },

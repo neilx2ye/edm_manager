@@ -431,9 +431,7 @@ export default function ApiToolsContent() {
   }, []);
 
   useEffect(() => {
-    const manageable = projects.filter(
-      (project) => project.myRole === "admin",
-    );
+    const manageable = projects;
     if (manageable.length === 0) {
       setKeyProjectId(null);
       return;
@@ -487,9 +485,7 @@ export default function ApiToolsContent() {
         .filter((group) => group.endpoints.length > 0)
     : grouped;
 
-  const manageableProjects = projects.filter(
-    (project) => project.myRole === "admin",
-  );
+  const manageableProjects = projects;
   const selectedProject = projects.find((project) => project.id === keyProjectId);
   const script = useMemo(
     () =>

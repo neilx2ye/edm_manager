@@ -57,7 +57,7 @@ export default function ProjectSettings({
     );
   }
 
-  const canManage = project.myRole === "admin";
+  const canManage = Boolean(project);
 
   return (
     <div className="mx-auto max-w-4xl p-6">

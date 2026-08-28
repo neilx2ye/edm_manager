@@ -3,7 +3,7 @@
 import { useCallback, useEffect, useState, type FormEvent } from "react";
 import Link from "next/link";
 import { api } from "@/lib/client-api";
-import type { Project, Role, UserAccount, UserMembership } from "@/lib/types";
+import type { Role, UserAccount, UserMembership } from "@/lib/types";
 import { formatDateTime } from "@/lib/format";
 import {
   ConfirmDialog,
@@ -16,22 +16,17 @@ import {
   btnPrimary,
   btnSecondary,
   inputCls,
+  selectCls,
 } from "@/components/ui";
 
-const ROLES: Role[] = ["admin", "member"];
 const ROLE_LABELS: Record<Role, string> = {
   admin: "管理员",
   member: "成员",
 };
 
-/** 我可管理的项目（管理员，含项目创建者），用于成员资格分配下拉。 */
-function manageable(projects: Project[]): Project[] {
-  return projects.filter((p) => p.myRole === "admin");
-}
-
 export default function UsersContent() {
   const [users, setUsers] = useState<UserAccount[]>([]);
-  const [projects, setProjects] = useState<Project[]>([]);
+  const [projects, setProjects] = useState<{ id: number; name: string }[]>([]);
   const [loading, setLoading] = useState(true);
   const [forbidden, setForbidden] = useState<string | null>(null);
   const [error, setError] = useState<string | null>(null);
@@ -39,15 +34,14 @@ export default function UsersContent() {
 
   const load = useCallback(async () => {
     try {
-      // api.users.list 对非管理员返回 403；能列出用户才有权管理
-      const list = await api.users.list();
+      // api.users.* 对非系统管理员返回 403；能列出用户才有权管理
+      const [list, projs] = await Promise.all([
+        api.users.list(),
+        api.users.projects(),
+      ]);
       setUsers(list);
+      setProjects(projs);
       setForbidden(null);
-      try {
-        setProjects(await api.projects.list());
-      } catch {
-        setProjects([]);
-      }
     } catch (err) {
       setForbidden(err instanceof Error ? err.message : "无权限");
     } finally {
@@ -67,7 +61,7 @@ export default function UsersContent() {
         <div className="flex flex-col items-center gap-2 rounded-xl border border-dashed border-slate-300 bg-white py-16 text-center">
           <p className="text-sm font-medium text-slate-700">无权限</p>
           <p className="text-sm text-slate-400">
-            用户管理仅对项目管理员开放（{forbidden}）
+            仅系统管理员可管理用户（{forbidden}）
           </p>
           <Link
             href="/change-password"
@@ -86,7 +80,7 @@ export default function UsersContent() {
         <div>
           <h1 className="text-lg font-semibold text-slate-900">用户管理</h1>
           <p className="mt-0.5 text-xs text-slate-400">
-            全局账号与各项目成员资格（独立于项目）
+            系统账号与项目分配（管理员 / 成员只有“能否管理用户”的区别）
           </p>
         </div>
         <div className="flex gap-2">
@@ -115,7 +109,7 @@ export default function UsersContent() {
             <UserCard
               key={u.id}
               user={u}
-              projects={manageable(projects)}
+              projects={projects}
               onChanged={load}
               onError={setError}
             />
@@ -125,7 +119,7 @@ export default function UsersContent() {
 
       {showCreate ? (
         <CreateUserModal
-          projects={manageable(projects)}
+          projects={projects}
           onClose={() => setShowCreate(false)}
           onCreated={() => {
             setShowCreate(false);
@@ -146,7 +140,7 @@ function UserCard({
   onError,
 }: {
   user: UserAccount;
-  projects: Project[];
+  projects: { id: number; name: string }[];
   onChanged: () => Promise<void>;
   onError: (msg: string | null) => void;
 }) {
@@ -164,6 +158,22 @@ function UserCard({
       await onChanged();
     } catch (err) {
       onError(err instanceof Error ? err.message : "移除失败");
+    } finally {
+      setBusy(false);
+    }
+  }
+
+  async function toggleRole() {
+    onError(null);
+    setBusy(true);
+    try {
+      await api.users.setRole(
+        user.id,
+        user.role === "admin" ? "member" : "admin",
+      );
+      await onChanged();
+    } catch (err) {
+      onError(err instanceof Error ? err.message : "修改角色失败");
     } finally {
       setBusy(false);
     }
@@ -189,6 +199,9 @@ function UserCard({
         <div className="min-w-0">
           <p className="text-sm font-medium text-slate-900">
             {user.name ?? user.email}
+            <span className="ml-2">
+              <RoleBadge role={user.role} />
+            </span>
             {user.mustChangePassword ? (
               <span className="ml-2 rounded-full bg-amber-100 px-2 py-0.5 text-[11px] text-amber-700">
                 待修改初始密码
@@ -207,6 +220,14 @@ function UserCard({
             onClick={() => setAdding((v) => !v)}
           >
             {adding ? "收起" : "添加项目"}
+          </button>
+          <button
+            type="button"
+            className={btnSecondary}
+            disabled={busy}
+            onClick={() => void toggleRole()}
+          >
+            {user.role === "admin" ? "设为成员" : "设为管理员"}
           </button>
           <button
             type="button"
@@ -229,7 +250,6 @@ function UserCard({
               className="inline-flex items-center gap-1.5 rounded-full bg-slate-100 py-1 pl-3 pr-1.5 text-xs text-slate-700"
             >
               <span className="font-medium">{m.projectName}</span>
-              <RoleBadge role={m.role} />
               <button
                 type="button"
                 aria-label={`移除 ${m.projectName}`}
@@ -289,7 +309,7 @@ function AddProjectForm({
   onError,
 }: {
   user: UserAccount;
-  projects: Project[];
+  projects: { id: number; name: string }[];
   onDone: () => Promise<void>;
   onError: (msg: string | null) => void;
 }) {
@@ -300,7 +320,6 @@ function AddProjectForm({
   const [projectId, setProjectId] = useState<number>(
     available[0]?.id ?? projects[0]?.id ?? 0,
   );
-  const [role, setRole] = useState<string>("member");
   const [busy, setBusy] = useState(false);
 
   async function onSubmit(e: FormEvent) {
@@ -309,7 +328,7 @@ function AddProjectForm({
     onError(null);
     setBusy(true);
     try {
-      await api.users.upsertMembership(user.id, { projectId, role });
+      await api.users.upsertMembership(user.id, { projectId });
       await onDone();
     } catch (err) {
       onError(err instanceof Error ? err.message : "添加失败");
@@ -318,11 +337,7 @@ function AddProjectForm({
   }
 
   if (projects.length === 0) {
-    return (
-      <p className="mt-3 text-xs text-slate-400">
-        你没有管理员权限的项目，无法分配项目。
-      </p>
-    );
+    return <p className="mt-3 text-xs text-slate-400">暂无项目可分配。</p>;
   }
 
   return (
@@ -333,7 +348,7 @@ function AddProjectForm({
       <label className="block">
         <span className="mb-1 block text-xs text-slate-500">项目</span>
         <select
-          className={`${inputCls} w-48`}
+          className={`${selectCls} w-56`}
           value={projectId || ""}
           onChange={(e) => setProjectId(Number(e.target.value))}
         >
@@ -341,22 +356,8 @@ function AddProjectForm({
             <option key={p.id} value={p.id}>
               {p.name}
               {user.memberships.some((m) => m.projectId === p.id)
-                ? "（已加入，将更新角色）"
+                ? "（已加入）"
                 : ""}
-            </option>
-          ))}
-        </select>
-      </label>
-      <label className="block">
-        <span className="mb-1 block text-xs text-slate-500">角色</span>
-        <select
-          className={`${inputCls} w-32`}
-          value={role}
-          onChange={(e) => setRole(e.target.value)}
-        >
-          {ROLES.map((r) => (
-            <option key={r} value={r}>
-              {ROLE_LABELS[r]}
             </option>
           ))}
         </select>
@@ -370,22 +371,23 @@ function AddProjectForm({
 
 /* ---------- 邀请用户 ---------- */
 
-type Assignment = { projectId: number; role: string };
+type Assignment = { projectId: number };
 
 function CreateUserModal({
   projects,
   onClose,
   onCreated,
 }: {
-  projects: Project[];
+  projects: { id: number; name: string }[];
   onClose: () => void;
   onCreated: () => void;
 }) {
   const [email, setEmail] = useState("");
   const [name, setName] = useState("");
   const [password, setPassword] = useState("");
+  const [role, setRole] = useState<Role>("member");
   const [assignments, setAssignments] = useState<Assignment[]>([
-    { projectId: projects[0]?.id ?? 0, role: "member" },
+    { projectId: projects[0]?.id ?? 0 },
   ]);
   const [error, setError] = useState<string | null>(null);
   const [busy, setBusy] = useState(false);
@@ -414,6 +416,7 @@ function CreateUserModal({
         email,
         name: name || undefined,
         password,
+        role,
         assignments: rows,
       });
       onCreated();
@@ -444,17 +447,29 @@ function CreateUserModal({
             />
           </Field>
         </div>
-        <Field label="初始密码（至少 8 位）">
-          <input
-            type="password"
-            required
-            minLength={8}
-            autoComplete="new-password"
-            className={inputCls}
-            value={password}
-            onChange={(e) => setPassword(e.target.value)}
-          />
-        </Field>
+        <div className="grid gap-3 sm:grid-cols-2">
+          <Field label="初始密码（至少 8 位）">
+            <input
+              type="password"
+              required
+              minLength={8}
+              autoComplete="new-password"
+              className={inputCls}
+              value={password}
+              onChange={(e) => setPassword(e.target.value)}
+            />
+          </Field>
+          <Field label="系统角色">
+            <select
+              className={selectCls}
+              value={role}
+              onChange={(e) => setRole(e.target.value as Role)}
+            >
+              <option value="member">成员</option>
+              <option value="admin">管理员</option>
+            </select>
+          </Field>
+        </div>
 
         <div>
           <p className="mb-1 text-sm font-medium text-slate-700">项目分配</p>
@@ -462,7 +477,7 @@ function CreateUserModal({
             {assignments.map((row, i) => (
               <div key={i} className="flex items-center gap-2">
                 <select
-                  className={`${inputCls} flex-1`}
+                  className={`${selectCls} min-w-0 flex-1`}
                   value={row.projectId || ""}
                   onChange={(e) =>
                     setRow(i, { projectId: Number(e.target.value) })
@@ -476,17 +491,6 @@ function CreateUserModal({
                   {projects.map((p) => (
                     <option key={p.id} value={p.id}>
                       {p.name}
-                    </option>
-                  ))}
-                </select>
-                <select
-                  className={`${inputCls} w-32`}
-                  value={row.role}
-                  onChange={(e) => setRow(i, { role: e.target.value })}
-                >
-                  {ROLES.map((r) => (
-                    <option key={r} value={r}>
-                      {ROLE_LABELS[r]}
                     </option>
                   ))}
                 </select>
@@ -509,18 +513,13 @@ function CreateUserModal({
             className="mt-2 text-sm text-indigo-600 hover:underline disabled:text-slate-400"
             disabled={projects.length === 0}
             onClick={() =>
-              setAssignments((rows) => [
-                ...rows,
-                { projectId: 0, role: "member" },
-              ])
+              setAssignments((rows) => [...rows, { projectId: 0 }])
             }
           >
             + 添加一行
           </button>
           {projects.length === 0 ? (
-            <p className="mt-1 text-xs text-rose-600">
-              你没有管理员权限的项目，无法为新用户分配项目。
-            </p>
+            <p className="mt-1 text-xs text-rose-600">暂无项目可分配。</p>
           ) : null}
         </div>
 

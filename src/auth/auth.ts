@@ -29,7 +29,7 @@ export const { handlers, auth, signIn, signOut } = NextAuth({
 
         // 凭据哈希只通过服务端角色读取（edm_app 无 password_hash 列权限）
         const res = await servicePool.query(
-          `SELECT id, email::text, name, password_hash, must_change_password
+          `SELECT id, email::text, name, password_hash, must_change_password, role
              FROM auth.users
             WHERE email = $1`,
           [email],
@@ -44,6 +44,7 @@ export const { handlers, auth, signIn, signOut } = NextAuth({
           email: row.email,
           name: row.name ?? row.email,
           mustChangePassword: row.must_change_password === true,
+          role: row.role === "admin" ? "admin" : "member",
         };
       },
     }),
@@ -55,6 +56,7 @@ export const { handlers, auth, signIn, signOut } = NextAuth({
         token.mustChangePassword = Boolean(
           (user as unknown as { mustChangePassword?: boolean }).mustChangePassword,
         );
+        token.role = (user as { role?: string }).role ?? "member";
       }
       return token;
     },
@@ -64,6 +66,8 @@ export const { handlers, auth, signIn, signOut } = NextAuth({
         session.user.email = session.user.email ?? (token.email as string) ?? "";
         (session.user as unknown as Record<string, unknown>).mustChangePassword =
           Boolean(token.mustChangePassword);
+        (session.user as unknown as Record<string, unknown>).role =
+          token.role ?? "member";
       }
       return session;
     },

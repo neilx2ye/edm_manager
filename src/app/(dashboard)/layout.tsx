@@ -15,7 +15,9 @@ export default async function DashboardLayout({
   return (
     <div className="flex h-screen overflow-hidden">
       <Suspense>
-        <Sidebar user={{ name: user.name, email: user.email }} />
+        <Sidebar
+          user={{ name: user.name, email: user.email, role: user.role }}
+        />
       </Suspense>
       <main
         className="h-full min-h-0 min-w-0 flex-1 overflow-y-auto overscroll-contain"

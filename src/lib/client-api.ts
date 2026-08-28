@@ -4,6 +4,7 @@ import type {
   ApiKeyInfo,
   Project,
   ProjectMember,
+  Role,
   SessionUser,
   TemplateDetail,
   TemplateSummary,
@@ -105,7 +106,6 @@ export const api = {
       projectId: number,
       data: {
         email: string;
-        role: string;
         name?: string;
         password: string;
       },
@@ -114,11 +114,6 @@ export const api = {
         method: "POST",
         body: JSON.stringify(data),
       }),
-    updateMember: (projectId: number, userId: string, role: string) =>
-      request<ProjectMember>(
-        `/api/projects/${projectId}/members/${userId}`,
-        { method: "PATCH", body: JSON.stringify({ role }) },
-      ),
     removeMember: (projectId: number, userId: string) =>
       request<{ ok: boolean }>(
         `/api/projects/${projectId}/members/${userId}`,
@@ -161,20 +156,25 @@ export const api = {
 
   users: {
     list: () => request<UserAccount[]>("/api/users"),
+    projects: () =>
+      request<{ id: number; name: string }[]>("/api/users/projects"),
     create: (data: {
       email: string;
       name?: string;
       password: string;
-      assignments: { projectId: number; role: string }[];
+      role?: Role;
+      assignments: { projectId: number }[];
     }) =>
       request<UserAccount>("/api/users", {
         method: "POST",
         body: JSON.stringify(data),
       }),
-    upsertMembership: (
-      userId: string,
-      data: { projectId: number; role: string },
-    ) =>
+    setRole: (userId: string, role: Role) =>
+      request<{ id: string; role: Role }>(`/api/users/${userId}`, {
+        method: "PATCH",
+        body: JSON.stringify({ role }),
+      }),
+    upsertMembership: (userId: string, data: { projectId: number }) =>
       request<UserMembership>(`/api/users/${userId}/memberships`, {
         method: "PUT",
         body: JSON.stringify(data),
@@ -278,6 +278,11 @@ export const api = {
       uploadImage<Image>(projectId, file, name),
     remove: (imageId: number) =>
       request<{ ok: boolean }>(`/api/images/${imageId}`, { method: "DELETE" }),
+    rename: (imageId: number, name: string) =>
+      request<{ id: number; name: string; url: string }>(
+        `/api/images/${imageId}`,
+        { method: "PATCH", body: JSON.stringify({ name }) },
+      ),
   },
 };
 
