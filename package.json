@@ -8,11 +8,15 @@
     "start": "next start",
     "db:setup": "tsx scripts/db-setup.ts",
     "db:migrate": "tsx scripts/migrate.ts",
-    "db:seed": "tsx --env-file=.env scripts/seed.ts"
+    "db:seed": "tsx --env-file=.env scripts/seed.ts",
+    "mcp": "tsx mcp/stdio.ts",
+    "mcp:test": "tsx scripts/mcp-test.ts",
+    "mcp:ui-smoke": "tsx scripts/mcp-ui-smoke.mts"
   },
   "dependencies": {
     "@auth/drizzle-adapter": "^1.11.3",
     "@codemirror/lang-html": "^6.4.12",
+    "@modelcontextprotocol/sdk": "^1.32.1",
     "@node-rs/argon2": "^2.1.0",
     "@tailwindcss/postcss": "^4.3.3",
     "@uiw/react-codemirror": "^4.25.11",

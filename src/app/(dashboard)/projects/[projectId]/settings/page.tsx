@@ -1,6 +1,6 @@
 import ProjectSettings from "./settings";
 
-const TABS = ["general", "topics", "apikeys"] as const;
+const TABS = ["general", "topics", "apikeys", "mcp"] as const;
 type Tab = (typeof TABS)[number];
 
 export default async function ProjectSettingsPage({

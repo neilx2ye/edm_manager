@@ -85,6 +85,27 @@ agent 可读取项目图片列表、拉取原图，并删除自己上传的图�
 登录用户；可直接采纳为 `saved` 的能力由项目开关 `agent_can_approve` 控制
 （默认开启），回滚仅限人工。
 
+## MCP 接入
+
+同一套 agent 能力已包装为 MCP 工具，提供两种接入方式（详见 `MCP.md`）：
+
+- **托管 MCP**：`POST https://edm.neilx.online/api/mcp`
+  （MCP Streamable HTTP，无状态；`Authorization: Bearer edm_<key>`）
+- **stdio MCP**：`EDM_API_KEY=edm_<key> npm run mcp`
+  （适合本机客户端，`edm_upload_image` 可直接传本地 `file_path`）
+
+网页入口：**项目设置 → MCP**，或 **API 工具页 → MCP 接入**；可在页面中创建
+MCP 专用 API key、复制托管/stdio 客户端配置并查看 12 个工具。
+
+共 12 个工具，覆盖身份发现、主题/模板/版本查询、版本推送与采纳、截图读取、
+图片列表/上传/读取/删除。工具内部复用现有 HTTP API，权限、审计与实时预览语义
+不变；项目 ID 会从 API key 自动发现，可省略 `project_id`。
+
+```bash
+npm run mcp:test       # mock API 下的 MCP 全工具测试
+npm run mcp:ui-smoke   # 项目设置 / API 工具页的 MCP 入口冒烟
+```
+
 ## 生产部署（Caddy 反向代理 + systemd）
 
 本机用 Caddy 做 80/443 反向代理，`edm.neilx.online` 已配置：

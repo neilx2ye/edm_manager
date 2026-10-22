@@ -7,10 +7,17 @@ const OPENAPI_DOC = {
     title: "EDM 邮件模板预览与管理系统 API",
     version: "0.1.0",
     description:
-      "供 AI agent 使用的接口：携带 `Authorization: Bearer edm_<key>`，可在所属项目内只读发现主题与模板、提交版本、读取历史与任务状态，并上传/管理项目图片。创建主题/模板仅限登录用户（不在本清单中）。",
+      "供 AI agent 使用的接口：携带 `Authorization: Bearer edm_<key>`，可在所属项目内只读发现主题与模板、提交版本、读取历史与任务状态，并上传/管理项目图片。创建主题/模板仅限登录用户（不在本清单中）。同一套能力也通过 MCP 提供：`POST /api/mcp`（MCP Streamable HTTP，Bearer API key 认证；详见 MCP.md）。",
   },
   servers: [{ url: "/" }],
   paths: {
+    "/api/agent/me": {
+      get: {
+        summary: "API key 自省（所属项目与 key 信息）",
+        security: [{ ApiKeyAuth: [] }],
+        responses: { 200: { description: "keyId / keyName / projectId / projectName" } },
+      },
+    },
     "/api/projects/{projectId}/topics": {
       get: {
         summary: "项目主题列表（agent 可读）",

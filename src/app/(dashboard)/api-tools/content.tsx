@@ -11,6 +11,7 @@ import Link from "next/link";
 import { useSearchParams } from "next/navigation";
 import { api } from "@/lib/client-api";
 import type { ApiKeyInfo, Project } from "@/lib/types";
+import { McpPanel } from "@/components/mcp-panel";
 import {
   ErrorText,
   Field,
@@ -403,6 +404,7 @@ export default function ApiToolsContent() {
     typeof window === "undefined" ? "" : window.location.origin,
   );
   const [copied, setCopied] = useState<"key" | "script" | null>(null);
+  const [mode, setMode] = useState<"rest" | "mcp">("rest");
 
   const load = useCallback(async () => {
     try {
@@ -568,7 +570,9 @@ export default function ApiToolsContent() {
         <div>
           <h1 className="text-xl font-semibold text-slate-900">API 工具</h1>
           <p className="mt-1 text-sm text-slate-500">
-            面向 AI 客户端的接口清单 · 共 {endpoints.length} 个接口
+            {mode === "rest"
+              ? `面向 AI 客户端的接口清单 · 共 ${endpoints.length} 个接口`
+              : "把同一套 agent 能力接入 Codex、Claude、Cursor 等 MCP 客户端"}
           </p>
         </div>
         <Link href="/openapi.json" target="_blank" className={btnSecondary}>
@@ -576,6 +580,62 @@ export default function ApiToolsContent() {
         </Link>
       </div>
 
+      <div className="mb-5 inline-flex rounded-lg border border-slate-200 bg-white p-0.5 shadow-sm">
+        {(
+          [
+            ["rest", "REST API"],
+            ["mcp", "MCP 接入"],
+          ] as ["rest" | "mcp", string][]
+        ).map(([key, label]) => (
+          <button
+            key={key}
+            type="button"
+            onClick={() => setMode(key)}
+            className={`rounded-md px-4 py-1.5 text-sm font-medium ${
+              mode === key
+                ? "bg-indigo-50 text-indigo-700"
+                : "text-slate-500 hover:text-slate-700"
+            }`}
+          >
+            {label}
+          </button>
+        ))}
+      </div>
+
+      {mode === "mcp" ? (
+        manageableProjects.length === 0 ? (
+          <p className="rounded-xl border border-dashed border-slate-300 bg-white py-14 text-center text-sm text-slate-400">
+            请先加入一个项目，再配置 MCP。
+          </p>
+        ) : (
+          <>
+            <div className="mb-3 flex flex-wrap items-end gap-2">
+              <Field label="项目">
+                <select
+                  className={`${inputCls} w-64`}
+                  value={keyProjectId ?? ""}
+                  onChange={(e) =>
+                    setKeyProjectId(Number(e.target.value) || null)
+                  }
+                >
+                  {manageableProjects.map((project) => (
+                    <option key={project.id} value={project.id}>
+                      {project.name}
+                    </option>
+                  ))}
+                </select>
+              </Field>
+              <p className="pb-2 text-xs text-slate-400">
+                MCP key 与项目绑定，只能访问该项目的数据。
+              </p>
+            </div>
+            {keyProjectId ? (
+              <McpPanel projectId={keyProjectId} canManage />
+            ) : null}
+          </>
+        )
+      ) : (
+        <>
       <section className="mb-6 rounded-xl border border-slate-200 bg-white p-4">
         <div className="mb-3 flex flex-wrap items-center justify-between gap-2">
           <div>
@@ -768,6 +828,8 @@ export default function ApiToolsContent() {
       <p className="mt-8 border-t border-slate-200 pt-4 text-xs text-slate-400">
         创建主题和模板仍仅限登录用户；上方仅列出 AI 客户端可调用的接口。
       </p>
+        </>
+      )}
     </div>
   );
 }

@@ -7,6 +7,7 @@ import { api } from "@/lib/client-api";
 import type { ApiKeyInfo, Project, Topic } from "@/lib/types";
 import { formatDateTime } from "@/lib/format";
 import { TopicFormModal } from "@/components/topics";
+import { McpPanel } from "@/components/mcp-panel";
 import {
   ConfirmDialog,
   ErrorText,
@@ -18,7 +19,7 @@ import {
   inputCls,
 } from "@/components/ui";
 
-type Tab = "general" | "topics" | "apikeys";
+type Tab = "general" | "topics" | "apikeys" | "mcp";
 
 export default function ProjectSettings({
   projectId,
@@ -80,6 +81,7 @@ export default function ProjectSettings({
             ["general", "通用"],
             ["topics", "主题"],
             ["apikeys", "API key"],
+            ["mcp", "MCP"],
           ] as [Tab, string][]
         ).map(([key, label]) => (
           <button
@@ -101,6 +103,8 @@ export default function ProjectSettings({
         <GeneralSettings project={project} canManage={canManage} onSaved={load} />
       ) : tab === "topics" ? (
         <TopicsTab projectId={projectId} canManage={canManage} />
+      ) : tab === "mcp" ? (
+        <McpPanel projectId={projectId} canManage={canManage} />
       ) : (
         <ApiKeysTab projectId={projectId} canManage={canManage} />
       )}
